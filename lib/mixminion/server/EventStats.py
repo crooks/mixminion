@@ -7,11 +7,16 @@
 __all__ = [ 'EventLog', 'NilEventLog' ]
 
 import os
+import logging
 from threading import RLock
 from time import time
 
-from mixminion.Common import formatTime, LOG, previousMidnight, floorDiv, \
+from mixminion.Common import formatTime, previousMidnight, floorDiv, \
      createPrivateDir, MixError, readPickled, tryUnlink, writePickled
+
+
+log = logging.getLogger(__name__)
+
 
 # _EVENTS: a list of all recognized event types.
 _EVENTS = [ 'ReceivedPacket',
@@ -189,7 +194,7 @@ class EventLog(NilEventLog):
     def _save(self, now=None):
         """Implements 'save' method.  For internal use.  Must hold self._lock
            to invoke."""
-        LOG.debug("Syncing statistics to disk")
+        log.debug("Syncing statistics to disk")
         if not now: now = time()
         tmpfile = self.filename + "_tmp"
         tryUnlink(tmpfile)
@@ -231,7 +236,7 @@ class EventLog(NilEventLog):
            and clears the current event log."""
 
         # Must hold lock
-        LOG.debug("Flushing statistics log")
+        log.debug("Flushing statistics log")
         if now is None: now = time()
 
         starting = not os.path.exists(self.historyFilename)
@@ -312,23 +317,23 @@ def configureLog(config):
     """Given a configuration file, set up the log.  May replace the log global
        variable.
     """
-    global log
+    global elog
     if config['Server']['LogStats']:
-        LOG.info("Enabling statistics logging")
+        log.info("Enabling statistics logging")
         statsfile = config.getStatsFile()
         if not os.path.exists(os.path.split(statsfile)[0]):
             # create parent if needed.
             os.makedirs(os.path.split(statsfile)[0], 0700)
 
         workfile = os.path.join(config.getWorkDir(), "stats.tmp")
-        log = EventLog(
+        elog = EventLog(
            workfile, statsfile, config['Server']['StatsInterval'].getSeconds())
         import mixminion.MMTPClient
         mixminion.MMTPClient.useEventStats()
-        LOG.info("Statistics logging enabled")
+        log.info("Statistics logging enabled")
     else:
-        log = NilEventLog()
-        LOG.info("Statistics logging disabled")
+        elog = NilEventLog()
+        log.info("Statistics logging disabled")
 
 # Global variable: The currently configured event log.
-log = NilEventLog()
+elog = NilEventLog()

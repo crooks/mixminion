@@ -13,6 +13,7 @@ __all__ = [ 'ClientDirectory', 'parsePath', 'parseAddress',
 
 import cPickle
 import errno
+import logging
 import operator
 import os
 import re
@@ -33,7 +34,7 @@ import mixminion.Crypto
 import mixminion.NetUtils
 import mixminion.ServerInfo
 
-from mixminion.Common import LOG, MixError, MixFatalError, UIError, \
+from mixminion.Common import MixError, MixFatalError, UIError, \
      ceilDiv, createPrivateDir, formatDate, formatFnameTime, openUnique, \
      previousMidnight, readPickled, readPossiblyGzippedFile, \
      replaceFile, tryUnlink, writePickled, floorDiv, isSMTPMailbox
@@ -41,6 +42,10 @@ from mixminion.Packet import MBOX_TYPE, SMTP_TYPE, DROP_TYPE, FRAGMENT_TYPE, \
      parseMBOXInfo, parseRelayInfoByType, parseSMTPInfo, ParseError, \
      ServerSideFragmentedMessage
 from mixminion.ThreadUtils import RWLock, DummyLock
+
+
+log = logging.getLogger(__name__)
+
 
 # FFFF This should be made configurable and adjustable.
 #MIXMINION_DIRECTORY_URL = "http://mixminion.net/directory/Directory.gz"
@@ -101,7 +106,7 @@ class _DescriptorSourceSharedState:
     def __setstate__(self,state):
         if (type(state) != types.TupleType or len(state)<1 or
             state[0] != self.MAGIC):
-            LOG.warn("Uncognized state on picked DSSS; rebuilding.")
+            log.warn("Uncognized state on picked DSSS; rebuilding.")
             self.digestMap = {}
             self._changed = 1
         else:
@@ -215,7 +220,7 @@ class FSBackedDescriptorSource(DescriptorSource):
             try:
                 mtime = long(os.stat(fullname)[stat.ST_MTIME])
             except OSError:
-                LOG.warn("Unable to stat file %s", fullname)
+                log.warn("Unable to stat file %s", fullname)
                 del self.servers[fname]
                 continue
             if (self.servers.has_key(fname) and
@@ -226,7 +231,7 @@ class FSBackedDescriptorSource(DescriptorSource):
                     fname=fullname, assumeValid=0,
                     validatedDigests=self._s.digestMap)
             except mixminion.Config.ConfigError, e:
-                LOG.warn("Invalid entry %s in %s: %s",
+                log.warn("Invalid entry %s in %s: %s",
                          fname, self.directory, e)
                 continue
             self.servers[fname] = (mtime, s)
@@ -250,10 +255,10 @@ class FSBackedDescriptorSource(DescriptorSource):
         for fname, (_, s) in self.servers.items():
             expires = s['Server']['Valid-Until']
             if expires > cutoff:
-                LOG.debug("Removing expired server %s",fname)
+                log.debug("Removing expired server %s",fname)
                 removed.append(fname)
             elif s.isSupersededBy(byNickname[s.getNickname().lower()]):
-                LOG.debug("Removing superseded server %s",fname)
+                log.debug("Removing superseded server %s",fname)
                 removed.append(fname)
         for fname in removed:
             del self.servers[fname]
@@ -318,7 +323,7 @@ class FSBackedDescriptorSource(DescriptorSource):
     def __setstate__(self,state):
         if (type(state) != types.TupleType or len(state)<1 or
             state[0] != self.MAGIC):
-            LOG.warn("Unrecognized state on picked FSBDS; rebuilding.")
+            log.warn("Unrecognized state on picked FSBDS; rebuilding.")
             self.servers = {}
             self._changed = 1
         else:
@@ -399,7 +404,7 @@ class DirectoryBackedDescriptorSource(DescriptorSource):
             self.serverDir = serverDir
             self.lastDownload = lastDownload
         except mixminion.Config.ConfigError, e:
-            LOG.warn("Found invalid cached directory; not using: %s",e)
+            log.warn("Found invalid cached directory; not using: %s",e)
             return
         for s in self.serverDir.getAllServers():
             self._s._addDigest(s)
@@ -424,13 +429,13 @@ class DirectoryBackedDescriptorSource(DescriptorSource):
             self.lastDownload < previousMidnight(now)):
             self.downloadDirectory(url=url,lock=lock)
         else:
-            LOG.debug("Directory is up to date.")
+            log.debug("Directory is up to date.")
 
     def downloadDirectory(self, url=MIXMINION_DIRECTORY_URL,
                           lock=None):
         """Fetch a new directory."""
         if self.__downloading:
-            LOG.info("Download already in progress")
+            log.info("Download already in progress")
             return
         self.__downloading = 1
         self._downloadDirectoryImpl(url,lock)
@@ -447,19 +452,19 @@ class DirectoryBackedDescriptorSource(DescriptorSource):
         try:
             parsedDate = rfc822.parsedate_tz(dateHeader)
         except ValueError:
-            LOG.warn("Invalid date header from directory: %r",dateHeader)
+            log.warn("Invalid date header from directory: %r",dateHeader)
             return
         if not parsedDate: return
 
-        LOG.trace("Directory server said date is %r", dateHeader)
+        log.trace("Directory server said date is %r", dateHeader)
         skew = (expected - rfc822.mktime_tz(parsedDate))/60.0
         if abs(skew) > 30:
-            LOG.warn("The directory said that the date is %r; we are skewed by %+d minutes",
+            log.warn("The directory said that the date is %r; we are skewed by %+d minutes",
                      dateHeader, skew)
 
     def _downloadDirectoryImpl(self, url, lock=None):
         """Helper function: does the actual work of fetching a directory."""
-        LOG.info("Downloading directory from %s", url)
+        log.info("Downloading directory from %s", url)
         # XXXX Refactor download logic.
         if self.timeout:
             mixminion.NetUtils.setGlobalTimeout(self.timeout)
@@ -523,7 +528,7 @@ class DirectoryBackedDescriptorSource(DescriptorSource):
         if dateHeader: self._warnIfSkewed(dateHeader, expected=startTime)
 
         # Open and validate the directory
-        LOG.info("Validating directory")
+        log.info("Validating directory")
 
         lock.read_in()
         digestMap = self._s.digestMap.copy()
@@ -569,7 +574,7 @@ class DirectoryBackedDescriptorSource(DescriptorSource):
     def __setstate__(self,state):
         if (type(state) != types.TupleType or len(state)<1 or
             state[0] != self.MAGIC):
-            LOG.warn("Unrecognized state on picked FSBDS; rebuilding.")
+            log.warn("Unrecognized state on picked FSBDS; rebuilding.")
             self.serverDir = None
             self.lastDownload = 0
             self._changed = 1
@@ -642,7 +647,7 @@ class CachingDescriptorSource(DescriptorSource):
     def __setstate__(self,state):
         if (type(state) != types.TupleType or len(state)<1 or
             state[0] != self.MAGIC):
-            LOG.warn("Unrecognized state on picked FSBDS; rebuilding.")
+            log.warn("Unrecognized state on picked FSBDS; rebuilding.")
             self.bases = []
         else:
             self.bases = state[1]
@@ -697,16 +702,16 @@ def loadCachingDescriptorSource(config):
             return store
         elif isinstance(store, types.TupleType):
             # changed to OO format in 0.0.8.
-            LOG.info("Found out-of-date directory cache; rebuilding.")
+            log.info("Found out-of-date directory cache; rebuilding.")
         else:
-            LOG.info("Found strange type in directory cache: %s.  Rebuilding",
+            log.info("Found strange type in directory cache: %s.  Rebuilding",
                      type(store))
     except (OSError, IOError):
-        LOG.info("Couldn't read directory cache; rebuilding")
+        log.info("Couldn't read directory cache; rebuilding")
     except (cPickle.UnpicklingError, ValueError), e:
-        LOG.info("Couldn't unpickle directory cache: %s", e)
+        log.info("Couldn't unpickle directory cache: %s", e)
 
-    LOG.info("Generating fresh directory cache...")
+    log.info("Generating fresh directory cache...")
 
     state = _DescriptorSourceSharedState()
     store = CachingDescriptorSource(state)
@@ -1174,7 +1179,7 @@ class ClientDirectory:
             if name.isValidFrom(startAt, endAt):
                 return name
             else:
-                LOG.debug("Time-invalid descriptor for %s, looking for another one.", name.getNickname())
+                log.debug("Time-invalid descriptor for %s, looking for another one.", name.getNickname())
                 name=name.getNickname()
 
         self.__scanAsNeeded()
@@ -1294,10 +1299,10 @@ class ClientDirectory:
             r1,r2 = result[:n1], result[n1:]
             paths.append( (r1,r2) )
             if pathSpec.isReply or pathSpec.isSURB:
-                LOG.info("Selected path is %s",
+                log.info("Selected path is %s",
                          ",".join([s.getNickname() for s in result]))
             else:
-                LOG.info("Selected path is %s:%s",
+                log.info("Selected path is %s:%s",
                          ",".join([s.getNickname() for s in r1]),
                          ",".join([s.getNickname() for s in r2]))
 
@@ -1348,9 +1353,9 @@ class ClientDirectory:
         if not relays:
             raise UIError("No relays known")
         elif len(relays) == 2:
-            LOG.warn("Not enough servers to avoid same-server hops")
+            log.warn("Not enough servers to avoid same-server hops")
         elif len(relays) == 1:
-            LOG.warn("Only one relay known")
+            log.warn("Only one relay known")
 
         # Now fill in the servers. For each relay we need...
         for i in xrange(len(servers)):
@@ -1393,7 +1398,7 @@ class ClientDirectory:
                 servers[i] = prng.pick(candidates)
             else:
                 # Nope.  Can we duplicate a relay?
-                LOG.warn("Repeating a relay because of routing restrictions.")
+                log.warn("Repeating a relay because of routing restrictions.")
                 if prev and next:
                     if prev.canRelayTo(next):
                         servers[i] = prev
@@ -1497,19 +1502,19 @@ class ClientDirectory:
                 continue
             if not self.goodNicknames.has_key(lc_nickname):
                 warned[lc_nickname] = 1
-                LOG.warn("Server %s is not recommended", nick)
+                log.warn("Server %s is not recommended", nick)
             b = self.blockedNicknames.get(lc_nickname,None)
             if not b: continue
             if '*' in b:
                 warned[lc_nickname] = 1
-                LOG.warn("Server %s is blocked", nick)
+                log.warn("Server %s is blocked", nick)
             else:
                 if i == 0 and 'entry' in b:
                     warned[lc_nickname] = 1
-                    LOG.warn("Server %s is blocked as an entry", nick)
+                    log.warn("Server %s is blocked as an entry", nick)
                 elif i==(len(p)-1) and 'exit' in b:
                     warned[lc_nickname] = 1
-                    LOG.warn("Server %s is blocked as an exit", nick)
+                    log.warn("Server %s is blocked as an exit", nick)
 
     def checkSoftwareVersion(self,client=1):
         """Check the current client's version against the stated version in
@@ -1537,7 +1542,7 @@ class ClientDirectory:
             try:
                 t = mixminion.parse_version_string(a)
             except ValueError:
-                LOG.warn("Couldn't parse recommended version %s", a)
+                log.warn("Couldn't parse recommended version %s", a)
                 continue
             try:
                 if mixminion.cmp_versions(current_t, t) < 0:
@@ -1545,10 +1550,10 @@ class ClientDirectory:
             except ValueError:
                 pass
         if more_recent_exists:
-            LOG.warn("This software may be obsolete; "
+            log.warn("This software may be obsolete; "
                       "You should consider upgrading.")
         else:
-            LOG.warn("This software is newer than any version "
+            log.warn("This software is newer than any version "
                      "on the recommended list.")
 
 #----------------------------------------------------------------------
@@ -1824,7 +1829,7 @@ class ExitAddress:
             if not verbose: return
             if WARN_HISTORY.has_key((self.exitType, nickname)):
                 return
-            LOG.warn("No way to tell if server %s supports exit type %s.",
+            log.warn("No way to tell if server %s supports exit type %s.",
                      nickname, self.getPrettyExitType())
             WARN_HISTORY[(self.exitType, nickname)] = 1
 

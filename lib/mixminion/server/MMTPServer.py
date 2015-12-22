@@ -19,6 +19,7 @@
 #    easier to use with TLS.
 
 import errno
+import logging
 import socket
 import select
 import re
@@ -31,7 +32,7 @@ import mixminion.ServerInfo
 import mixminion.TLSConnection
 import mixminion._minionlib as _ml
 from mixminion.Common import MixError, MixFatalError, MixProtocolError, \
-     LOG, stringContains, floorDiv, UIError
+     stringContains, floorDiv, UIError
 from mixminion.Crypto import sha1, getCommonPRNG
 from mixminion.Packet import PACKET_LEN, DIGEST_LEN, IPV4Info, MMTPHostInfo
 from mixminion.MMTPClient import PeerCertificateCache, MMTPClientConnection
@@ -41,6 +42,10 @@ from mixminion.Filestore import CorruptedFile
 from mixminion.ThreadUtils import MessageQueue, QueueEmpty
 
 __all__ = [ 'AsyncServer', 'ListenConnection', 'MMTPServerConnection' ]
+
+
+log = logging.getLogger(__name__)
+
 
 class SelectAsyncServer:
     """AsyncServer is the core of a general-purpose asynchronous
@@ -314,27 +319,27 @@ class ListenConnection(Connection):
         self.sock.listen(backlog)
         self.connectionFactory = connectionFactory
         self.isOpen = 1
-        LOG.info("Listening at %s on port %s (fd %s)",
+        log.info("Listening at %s on port %s (fd %s)",
                  ip, port, self.sock.fileno())
 
     def process(self, r, w, x, cap):
         #XXXX007 do something with x
         try:
             con, addr = self.sock.accept()
-            LOG.debug("Accepted connection from %s", addr)
+            log.debug("Accepted connection from %s", addr)
             self.connectionFactory(con)
         except socket.error, e:
-            LOG.warn("Socket error while accepting connection: %s", e)
+            log.warn("Socket error while accepting connection: %s", e)
         return self.isOpen,0,self.isOpen,0
 
     def getStatus(self):
         return self.isOpen,0,self.isOpen
 
     def shutdown(self):
-        LOG.debug("Closing listener connection (fd %s)", self.sock.fileno())
+        log.debug("Closing listener connection (fd %s)", self.sock.fileno())
         self.isOpen = 0
         self.sock.close()
-        LOG.info("Server connection closed")
+        log.info("Server connection closed")
 
     def fileno(self):
         return self.sock.fileno()
@@ -358,7 +363,7 @@ class MMTPServerConnection(mixminion.TLSConnection.TLSConnection):
 
         mixminion.TLSConnection.TLSConnection.__init__(
             self, tls, sock, serverName)
-        EventStats.log.receivedConnection()
+        EventStats.elog.receivedConnection()
         self.packetConsumer = consumer
         self.junkCallback = lambda : None
         self.rejectCallback = lambda : None
@@ -383,7 +388,7 @@ class MMTPServerConnection(mixminion.TLSConnection.TLSConnection):
 
         m = PROTOCOL_RE.match(s)
         if not m:
-            LOG.warn("Bad MMTP protocol string format from %s", self.address)
+            log.warn("Bad MMTP protocol string format from %s", self.address)
             #failed
             self.startShutdown()
             return
@@ -395,7 +400,7 @@ class MMTPServerConnection(mixminion.TLSConnection.TLSConnection):
                 self.onWrite = self.protocolWritten
                 self.beginWriting("MMTP %s\r\n"%p)
                 return
-        LOG.warn("No common protocols with %s", self.address)
+        log.warn("No common protocols with %s", self.address)
         #failed
         self.startShutdown()
 
@@ -425,24 +430,24 @@ class MMTPServerConnection(mixminion.TLSConnection.TLSConnection):
                     replyControl = RECEIVED_CONTROL
                 isJunk = 0
             else:
-                LOG.warn("Unrecognized command (%r) from %s.  Closing connection.",
+                log.warn("Unrecognized command (%r) from %s.  Closing connection.",
                          control, self.address)
                 #failed
                 self.startShutdown()
                 return
 
             if expectedDigest != digest:
-                LOG.warn("Invalid checksum from %s. Closing connection.",
+                log.warn("Invalid checksum from %s. Closing connection.",
                          self.address)
                 #failed
                 self.startShutdown()
                 return
             else:
                 if isJunk:
-                    LOG.debug("Link padding received from %s; Checksum valid.",
+                    log.debug("Link padding received from %s; Checksum valid.",
                               self.address)
                 else:
-                    LOG.debug("Packet received from %s; Checksum valid.",
+                    log.debug("Packet received from %s; Checksum valid.",
                               self.address)
 
             # Make sure we process the packet before we queue the ack.
@@ -695,7 +700,7 @@ class MMTPAsyncServer(AsyncServer):
                            self=self, routing=routing, deliverable=deliverable,
                            serverName=serverName):
                 if family == "NOENT":
-                    LOG.warn("Couldn't resolve %r: %s", name, addr)
+                    log.warn("Couldn't resolve %r: %s", name, addr)
                     # The lookup failed, so tell all of the message objects.
                     for m in deliverable:
                         try:
@@ -734,7 +739,7 @@ class MMTPAsyncServer(AsyncServer):
         """
         while len(self.clientConByAddr) < self.maxClientConnections and self.pendingPackets:
             args = self.pendingPackets.pop(0)
-            LOG.debug("Sending %s delayed packets...",len(args[5]))
+            log.debug("Sending %s delayed packets...",len(args[5]))
             self._sendPackets(*args)
 
         while 1:
@@ -760,14 +765,14 @@ class MMTPAsyncServer(AsyncServer):
             # No exception: There is an existing connection.  But is that
             # connection currently sending packets?
             if con.isActive():
-                LOG.debug("Queueing %s packets on open connection to %s",
+                log.debug("Queueing %s packets on open connection to %s",
                           len(deliverable), con.address)
                 for d in deliverable:
                     con.addPacket(d)
                 return
 
         if len(self.clientConByAddr) >= self.maxClientConnections:
-            LOG.debug("We already have %s open client connections; delaying %s packets for %s",
+            log.debug("We already have %s open client connections; delaying %s packets for %s",
                       len(self.clientConByAddr), len(deliverable), serverName)
             self.pendingPackets.append((family,ip,port,keyID,deliverable,serverName))
             return
@@ -787,9 +792,9 @@ class MMTPAsyncServer(AsyncServer):
             #con.allPacketsSent = finished #XXXX007 wrong!
             con.onClosed = finished
         except (socket.error, MixProtocolError), e:
-            LOG.error("Unexpected socket error connecting to %s: %s",
+            log.error("Unexpected socket error connecting to %s: %s",
                       serverName, e)
-            EventStats.log.failedConnect() #FFFF addr
+            EventStats.elog.failedConnect() #FFFF addr
             for m in deliverable:
                 try:
                     m.failed(1)
@@ -811,7 +816,7 @@ class MMTPAsyncServer(AsyncServer):
         try:
             del self.clientConByAddr[addr]
         except KeyError:
-            LOG.warn("Didn't find client connection to %s in address map",
+            log.warn("Didn't find client connection to %s in address map",
                      addr)
 
     def onPacketReceived(self, pkt):

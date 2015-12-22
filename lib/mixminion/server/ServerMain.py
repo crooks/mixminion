@@ -75,7 +75,7 @@ from mixminion.ScheduleUtils import OneTimeEvent, RecurringEvent, \
      RecurringComplexBackgroundEvent, Scheduler
 
 from bisect import insort
-from mixminion.Common import LOG, LogStream, MixError, MixFatalError,\
+from mixminion.Common import initLogging, LogStream, MixError, MixFatalError,\
      UIError, ceilDiv, createPrivateDir, disp64, formatTime, \
      installSIGCHLDHandler, Lockfile, LockfileLocked, readFile, secureDelete, \
      succeedingMidnight, tryUnlink, waitForChildren, writeFile
@@ -182,7 +182,7 @@ class IncomingQueue(mixminion.Filestore.StringStore):
     def queuePacket(self, pkt):
         """Add a packet for delivery"""
         h = mixminion.Filestore.StringStore.queueMessage(self, pkt)
-        LOG.trace("Inserting packet IN:%s into incoming queue", h)
+        log.trace("Inserting packet IN:%s into incoming queue", h)
         assert h is not None
         self.processingThread.addJob(
             lambda self=self, h=h: self.__deliverPacket(h))
@@ -201,17 +201,17 @@ class IncomingQueue(mixminion.Filestore.StringStore):
             res = ph.processPacket(packet)
             if res is None:
                 # Drop padding before it gets to the mix.
-                LOG.debug("Padding packet IN:%s dropped", handle)
+                log.debug("Padding packet IN:%s dropped", handle)
                 self.removeMessage(handle)
             else:
                 if res.isDelivery():
                     if res.getExitType() == mixminion.Packet.PING_TYPE:
-                        LOG.debug("Ping packet IN:%s decoded", handle)
+                        log.debug("Ping packet IN:%s decoded", handle)
                         digest = mixminion.Crypto.sha1(res.getPayload())
                         if self.pingLog is not None:
                             self.pingLog.gotPing(digest)
                         else:
-                            LOG.debug("Pinging not enabled; discarding packet")
+                            log.debug("Pinging not enabled; discarding packet")
                         self.removeMessage(handle)
                         return
                     else:
@@ -220,21 +220,20 @@ class IncomingQueue(mixminion.Filestore.StringStore):
 
                 self.mixPool.queueObject(res)
                 self.removeMessage(handle)
-                LOG.debug("Processed packet IN:%s; inserting into mix pool",
+                log.debug("Processed packet IN:%s; inserting into mix pool",
                           handle)
         except mixminion.Crypto.CryptoError, e:
-            LOG.warn("Invalid PK or misencrypted header in packet IN:%s: %s",
+            log.warn("Invalid PK or misencrypted header in packet IN:%s: %s",
                      handle, e)
             self.removeMessage(handle)
         except mixminion.Packet.ParseError, e:
-            LOG.warn("Malformed packet IN:%s dropped: %s", handle, e)
+            log.warn("Malformed packet IN:%s dropped: %s", handle, e)
             self.removeMessage(handle)
         except mixminion.server.PacketHandler.ContentError, e:
-            LOG.warn("Discarding bad packet IN:%s: %s", handle, e)
+            log.warn("Discarding bad packet IN:%s: %s", handle, e)
             self.removeMessage(handle)
         except:
-            LOG.error_exc(sys.exc_info(),
-                    "Unexpected error when processing IN:%s", handle)
+            log.exception("Unexpected error when processing IN:%s", handle)
             self.removeMessage(handle)
 
 class MixPool:
@@ -300,10 +299,10 @@ class MixPool:
         """Get a batch of packets, and queue them for delivery as
            appropriate."""
         if self.queue.count() == 0:
-            LOG.trace("No packets in the mix pool")
+            log.trace("No packets in the mix pool")
             return
         handles = self.queue.getBatch()
-        LOG.debug("%s packets in the mix pool; delivering %s.",
+        log.debug("%s packets in the mix pool; delivering %s.",
                   self.queue.count(), len(handles))
 
         for h in handles:
@@ -314,14 +313,14 @@ class MixPool:
             if packet.isDelivery():
                 h2 = self.moduleManager.queueDecodedMessage(packet)
                 if h2:
-                    LOG.debug("  (sending packet MIX:%s to exit modules as MOD:%s)"
+                    log.debug("  (sending packet MIX:%s to exit modules as MOD:%s)"
                               , h, h2)
                 else:
-                    LOG.debug("  (exit modules received packet MIX:%s without queueing.)", h)
+                    log.debug("  (exit modules received packet MIX:%s without queueing.)", h)
             else:
                 address = packet.getAddress()
                 h2 = self.outgoingQueue.queueDeliveryMessage(packet, address)
-                LOG.debug("  (sending packet MIX:%s to MMTP server as OUT:%s)"
+                log.debug("  (sending packet MIX:%s to MMTP server as OUT:%s)"
                           , h, h2)
             # In any case, we're through with this packet now.
             self.queue.removeMessage(h)
@@ -384,7 +383,7 @@ class OutgoingQueue(mixminion.server.ServerQueue.PerAddressDeliveryQueue):
         for routing, packets in pkts.items():
             if self.keyID == routing.keyinfo:
                 for pending in packets:
-                    LOG.trace("Delivering packet OUT:%s to myself.",
+                    log.trace("Delivering packet OUT:%s to myself.",
                               pending.getHandle())
                     self.incomingQueue.queuePacket(
                         pending.getMessage().getPacket())
@@ -394,7 +393,7 @@ class OutgoingQueue(mixminion.server.ServerQueue.PerAddressDeliveryQueue):
             deliverable[routing] = [
                 mixminion.server.MMTPServer.DeliverablePacket(pending)
                 for pending in packets ]
-            LOG.trace("Delivering packets OUT:[%s] to %s",
+            log.trace("Delivering packets OUT:[%s] to %s",
                       " ".join([p.getHandle() for p in packets]),
                       mixminion.ServerInfo.displayServerByRouting(routing))
 
@@ -424,7 +423,7 @@ class _MMTPServer(mixminion.server.MMTPServer.MMTPAsyncServer):
     def onPacketReceived(self, pkt):
         self.incomingQueue.queuePacket(pkt)
         # FFFF Replace with server.
-        EventStats.log.receivedPacket()
+        EventStats.elog.receivedPacket()
 
 #----------------------------------------------------------------------
 class CleaningThread(threading.Thread):
@@ -441,7 +440,7 @@ class CleaningThread(threading.Thread):
 
     def deleteFile(self, fname):
         """Schedule the file named 'fname' for deletion"""
-        #LOG.trace("Scheduling %s for deletion", fname)
+        #log.trace("Scheduling %s for deletion", fname)
         assert fname is not None
         self.mqueue.put([fname])
 
@@ -452,7 +451,7 @@ class CleaningThread(threading.Thread):
     def shutdown(self):
         """Tell this thread to shut down once it has deleted all pending
            files."""
-        LOG.info("Telling cleanup thread to shut down.")
+        log.info("Telling cleanup thread to shut down.")
         self.mqueue.clear()
         self.mqueue.put(None)
 
@@ -482,14 +481,13 @@ class CleaningThread(threading.Thread):
                     if os.path.exists(fn):
                         delNames.append(fn)
                     else:
-                        LOG.warn("Delete thread didn't find file %s",fn)
+                        log.warn("Delete thread didn't find file %s",fn)
 
                 secureDelete(delNames, blocking=1)
 
-            LOG.info("Cleanup thread shutting down.")
+            log.info("Cleanup thread shutting down.")
         except:
-            LOG.error_exc(sys.exc_info(),
-                          "Exception while cleaning; shutting down thread.")
+            log.exception("Exception while cleaning; shutting down thread.")
 
 
 
@@ -554,7 +552,7 @@ class MixminionServer(Scheduler):
     def __init__(self, config):
         """Create a new server from a ServerConfig."""
         Scheduler.__init__(self)
-        LOG.debug("Initializing server")
+        log.debug("Initializing server")
 
         self.config = config
         homeDir = config.getBaseDir()
@@ -611,72 +609,72 @@ class MixminionServer(Scheduler):
         if self.config['DirectoryServers'].get('Publish'):
             self.keyring.publishKeys()
 
-        LOG.debug("Initializing packet handler")
+        log.debug("Initializing packet handler")
         self.packetHandler = mixminion.server.PacketHandler.PacketHandler()
-        LOG.debug("Initializing MMTP server")
+        log.debug("Initializing MMTP server")
         self.mmtpServer = _MMTPServer(config, None)
-        LOG.debug("Initializing keys")
+        log.debug("Initializing keys")
         self.descriptorFile = os.path.join(homeDir, "current-desc")
         self.keyring.updateKeys(self.packetHandler,
                                 self.descriptorFile)
         self.keyring.updateMMTPServerTLSContext(self.mmtpServer)
-        LOG.debug("Initializing directory client")
+        log.debug("Initializing directory client")
         self.dirClient = mixminion.ClientDirectory.ClientDirectory(config)
         try:
             self.dirClient.update()
         except UIError, e:
-            LOG.warn(str(e))
-            LOG.warn("   (I'll use the old directory until I have a new one.)")
+            log.warn(str(e))
+            log.warn("   (I'll use the old directory until I have a new one.)")
         except mixminion.ClientDirectory.GotInvalidDirectoryError, e:
-            LOG.warn(str(e))
-            LOG.warn("   (I'll use the old one until I get one that's good.)")
+            log.warn(str(e))
+            log.warn("   (I'll use the old one until I get one that's good.)")
 
         self.dirClient._installAsKeyIDResolver()
 
         # FFFF Modulemanager should know about async so it can patch in if it
         # FFFF needs to.
-        LOG.debug("Initializing delivery module")
+        log.debug("Initializing delivery module")
         self.moduleManager = config.getModuleManager()
         self.moduleManager.configure(config)
 
         queueDir = config.getQueueDir()
 
         incomingDir = os.path.join(queueDir, "incoming")
-        LOG.debug("Initializing incoming queue")
+        log.debug("Initializing incoming queue")
         self.incomingQueue = IncomingQueue(incomingDir, self.packetHandler)
-        LOG.debug("Found %d pending packets in incoming queue",
+        log.debug("Found %d pending packets in incoming queue",
                   self.incomingQueue.count())
 
         mixDir = os.path.join(queueDir, "mix")
 
-        LOG.trace("Initializing Mix pool")
+        log.trace("Initializing Mix pool")
         self.mixPool = MixPool(config, mixDir)
-        LOG.debug("Found %d pending packets in Mix pool",
+        log.debug("Found %d pending packets in Mix pool",
                        self.mixPool.count())
 
         outgoingDir = os.path.join(queueDir, "outgoing")
-        LOG.debug("Initializing outgoing queue")
+        log.debug("Initializing outgoing queue")
         self.outgoingQueue = OutgoingQueue(outgoingDir,
                                    self.keyring.getIdentityKeyDigest())
         self.outgoingQueue.configure(config)
-        LOG.debug("Found %d pending packets in outgoing queue",
+        log.debug("Found %d pending packets in outgoing queue",
                        self.outgoingQueue.count())
 
         pingerEnabled = config['Pinging'].get("Enabled")
         if pingerEnabled and mixminion.server.Pinger.canRunPinger():
             #FFFF Later, enable this stuff anyway, to make R-G-B mixing work.
-            LOG.debug("Initializing database thread for pinger")
+            log.debug("Initializing database thread for pinger")
             self.databaseThread = ProcessingThread("database thread")
 
-            LOG.debug("Initializing ping log")
+            log.debug("Initializing ping log")
             self.pingLog = mixminion.server.Pinger.openPingLog(
                 config, databaseThread=self.databaseThread)
 
-            LOG.debug("Initializing ping generator")
+            log.debug("Initializing ping generator")
             self.pingGenerator=mixminion.server.Pinger.getPingGenerator(config)
         else:
             if pingerEnabled:
-                LOG.warn("Running a pinger requires Python 2.2 or later, and the pysqlite module")
+                log.warn("Running a pinger requires Python 2.2 or later, and the pysqlite module")
             self.pingLog = None
             self.pingGenerator = None
             self.databaseThread = None
@@ -686,7 +684,7 @@ class MixminionServer(Scheduler):
 
         self.dnsCache = mixminion.server.DNSFarm.DNSCache()
 
-        LOG.debug("Connecting queues")
+        log.debug("Connecting queues")
         self.incomingQueue.connectQueues(mixPool=self.mixPool,
                                        processingThread=self.processingThread)
         self.mixPool.connectQueues(outgoing=self.outgoingQueue,
@@ -724,7 +722,7 @@ class MixminionServer(Scheduler):
         # computers.  Instead, we reschedule for 2 minutes later
         # ???? Could there be a more elegant approach to this?
         if lock and not self.keyring.lock(0):
-            LOG.warn("generateKeys in progress:"
+            log.warn("generateKeys in progress:"
                      " updateKeys delaying for 2 minutes")
             # This will cause getNextKeyRotation to return 2 minutes later
             # than now.
@@ -758,14 +756,14 @@ class MixminionServer(Scheduler):
             # midnight, to avoid hosing the server.
             nextUpdate += prng.getInt(60)*60
         except mixminion.ClientDirectory.DirectoryDownloadError, e:
-            LOG.warn(str(e))
-            LOG.warn("    I'll try again in an hour.")
+            log.warn(str(e))
+            log.warn("    I'll try again in an hour.")
             nextUpdate = min(succeedingMidnight(time.time()+30),
                              time.time()+3600)
             reschedulePings = 0
         except UIError, e:#XXXX008 This should really be a new exception
-            LOG.warn(str(e))
-            LOG.warn("    I'll try again in an hour.")
+            log.warn(str(e))
+            log.warn("    I'll try again in an hour.")
             nextUpdate = min(succeedingMidnight(time.time()+30),
                              time.time()+3600)
             reschedulePings = 0
@@ -794,14 +792,14 @@ class MixminionServer(Scheduler):
         self.scheduleEvent(RecurringEvent(now+180,
                                      lambda: waitForChildren(blocking=0),
                                      180))
-        if EventStats.log.getNextRotation():
+        if EventStats.elog.getNextRotation():
             def _rotateStats():
-                EventStats.log.rotate()
-                return EventStats.log.getNextRotation()
+                EventStats.elog.rotate()
+                return EventStats.elog.getNextRotation()
             self.scheduleEvent(RecurringEvent(now+300,
-                                           lambda: EventStats.log.save, 300))
+                                           lambda: EventStats.elog.save, 300))
             self.scheduleEvent(RecurringComplexEvent(
-                EventStats.log.getNextRotation(),
+                EventStats.elog.getNextRotation(),
                 _rotateStats))
 
         def _tryTimeout(self=self):
@@ -856,15 +854,12 @@ class MixminionServer(Scheduler):
             self.updateDirectoryClient))
 
         nextMix = self.mixPool.getNextMixTime(now)
-        LOG.debug("First mix at %s", formatTime(nextMix,1))
+        log.debug("First mix at %s", formatTime(nextMix,1))
         self.scheduleEvent(RecurringComplexEvent(
             self.mixPool.getNextMixTime(now), self.doMix))
 
-        LOG.info("Entering main loop: Mixminion %s", mixminion.__version__)
+        log.info("Entering main loop: Mixminion %s", mixminion.__version__)
 
-        # This is the last possible moment to shut down the console log, so
-        # we have to do it now.
-        mixminion.Common.LOG.configure(self.config, keepStderr=_ECHO_OPT)
         if self.config['Server'].get("Daemon",1):
             closeUnusedFDs()
 
@@ -880,17 +875,17 @@ class MixminionServer(Scheduler):
                 self.mmtpServer.process(TICK_INTERVAL)
                 # Check for signals
                 if STOPPING:
-                    LOG.info("Caught SIGTERM; shutting down.")
+                    log.info("Caught SIGTERM; shutting down.")
                     return
                 elif GOT_HUP:
-                    LOG.info("Caught SIGHUP")
+                    log.info("Caught SIGHUP")
                     self.doReset()
                     GOT_HUP = 0
                 # Make sure that our worker threads are still running.
                 if not (self.cleaningThread.isAlive() and
                         self.processingThread.isAlive() and
                         self.moduleManager.thread.isAlive()):
-                    LOG.fatal("One of our threads has halted; shutting down.")
+                    log.critical("One of our threads has halted; shutting down.")
                     return
 
                 # Calculate remaining time until the next event.
@@ -907,11 +902,10 @@ class MixminionServer(Scheduler):
         """Called when server receives SIGHUP.  Flushes logs to disk,
            regenerates/republishes descriptors as needed.
         """
-        LOG.info("Resetting logs")
-        LOG.reset()
-        EventStats.log.save()
+        log.info("Resetting logs")
+        EventStats.elog.save()
         self.packetHandler.syncLogs()
-        LOG.info("Checking for key rotation")
+        log.info("Checking for key rotation")
         self.keyring.checkKeys()
         self.generateKeys()
         self.moduleManager.sync()
@@ -930,7 +924,7 @@ class MixminionServer(Scheduler):
             now = time.time()
             self.packetHandler.syncLogs()
 
-            LOG.trace("Mix interval elapsed")
+            log.trace("Mix interval elapsed")
             # Choose a set of outgoing packets; put them in
             # outgoingqueue and modulemanager
             self.mixPool.mix()
@@ -944,12 +938,12 @@ class MixminionServer(Scheduler):
 
         # Choose next mix interval
         nextMix = self.mixPool.getNextMixTime(now)
-        LOG.trace("Next mix at %s", formatTime(nextMix,1))
+        log.trace("Next mix at %s", formatTime(nextMix,1))
         return nextMix
 
     def cleanQueues(self):
         """Remove all deleted messages from queues"""
-        LOG.trace("Expunging deleted messages from queues")
+        log.trace("Expunging deleted messages from queues")
         # We use the 'deleteFiles' method from 'cleaningThread' so that
         # we schedule old files to get deleted in the background, rather than
         # blocking while they're deleted.
@@ -986,7 +980,7 @@ class MixminionServer(Scheduler):
             else:
                 self.pingLog.close()
 
-        EventStats.log.save()
+        EventStats.elog.save()
 
         self.lockFile.release()
 
@@ -1091,8 +1085,6 @@ def configFromServerArgs(cmd, args, usage):
         # people probably want that.
         _ECHO_OPT = 1
     elif _QUIET_OPT:
-        # Don't even say we're silencing the log.
-        mixminion.Common.LOG.silenceNoted = 1
         config['Server']['EchoMessages'] = 0
     if forceDaemon is not None:
         config['Server']['Daemon'] = forceDaemon
@@ -1155,28 +1147,18 @@ def runServer(cmd, args):
     checkHomedirVersion(config)
     daemonMode = config['Server'].get("Daemon",1)
     quiet = (_QUIET_OPT or daemonMode) and not _ECHO_OPT
-    try:
-        # Configure the log, but delay disabling stderr until the last
-        # possible minute; we want to keep echoing to the terminal until
-        # the main loop starts.
-        mixminion.Common.LOG.configure(config, keepStderr=(not quiet))
-        LOG.debug("Configuring server")
-    except UIError:
-        raise
-    except:
-        info = sys.exc_info()
-        LOG.fatal_exc(info,"Exception while configuring server")
-        LOG.fatal("Shutting down because of exception: %s", info[0])
-        sys.exit(1)
+
+    # Initialize the logger
+    global log
+    log = initLogging(config)
 
     if daemonMode:
-        LOG.info("Starting server in the background")
+        log.info("Starting server in the background")
         try:
             daemonize()
         except:
-            LOG.fatal_exc(sys.exc_info(),
-                          "Exception while starting server in the background")
-            os._exit(0)
+            log.exception("Exception while starting server in the background")
+            raise
     else:
         os.umask(0000)
 
@@ -1186,8 +1168,8 @@ def runServer(cmd, args):
     except UIError:
         raise
     except:
-        LOG.fatal_exc(sys.exc_info(), "")
-        os._exit(0)
+        log.exception("Exception configuring event log")
+        raise
 
     installSIGCHLDHandler()
     installSignalHandlers()
@@ -1201,12 +1183,10 @@ def runServer(cmd, args):
     except UIError:
         raise
     except:
-        info = sys.exc_info()
-        LOG.fatal_exc(info,"Exception while configuring server")
-        LOG.fatal("Shutting down because of exception: %s", info[0])
-        sys.exit(1)
+        log.exception("Exception while configuring server")
+        raise
 
-    LOG.info("Starting server: Mixminion %s", mixminion.__version__)
+    log.info("Starting server: Mixminion %s", mixminion.__version__)
     try:
         # We keep the console log open as long as possible so we can catch
         # more errors.
@@ -1214,15 +1194,13 @@ def runServer(cmd, args):
     except KeyboardInterrupt:
         pass
     except:
-        info = sys.exc_info()
-        LOG.fatal_exc(info,"Exception while running server")
-        LOG.fatal("Shutting down because of exception: %s", info[0])
+        log.exception("Exception while running server")
+        raise
 
-    LOG.info("Server shutting down")
+    log.info("Server shutting down")
     server.close()
-    LOG.info("Server is shut down")
+    log.info("Server is shut down")
 
-    LOG.close()
     sys.exit(0)
 
 #----------------------------------------------------------------------
@@ -1366,7 +1344,7 @@ def printServerStats(cmd, args):
     checkHomedirVersion(config)
     _signalServer(config, 1)
     EventStats.configureLog(config)
-    EventStats.log.dump(sys.stdout)
+    EventStats.elog.dump(sys.stdout)
 
 #----------------------------------------------------------------------
 _SIGNAL_SERVER_USAGE = """\
@@ -1390,7 +1368,6 @@ def signalServer(cmd, args):
                                         "rescan its configuration")
 
     config = configFromServerArgs(cmd, args, usage=usage)
-    LOG.setMinSeverity("ERROR")
 
     checkHomedirVersion(config)
 
@@ -1441,7 +1418,6 @@ def runRepublish(cmd, args):
 
     checkHomedirVersion(config)
 
-    LOG.setMinSeverity("INFO")
     mixminion.Crypto.init_crypto(config)
 
     keydir = config.getKeyDir()
@@ -1453,12 +1429,12 @@ def runRepublish(cmd, args):
         num = fn[4:]
         publishedFile = os.path.join(keydir, fn, "published")
         try:
-            LOG.info("Marking key %s unpublished", num)
+            log.info("Marking key %s unpublished", num)
             if os.path.exists(publishedFile):
                 os.unlink(publishedFile)
         except OSError, e:
-            LOG.warn("Couldn't mark key %s unpublished: %s",num,e)
+            log.warn("Couldn't mark key %s unpublished: %s",num,e)
 
-    LOG.info("Telling server to publish descriptors")
+    log.info("Telling server to publish descriptors")
 
     _signalServer(config, reload=1)

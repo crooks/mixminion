@@ -17,6 +17,7 @@ import binascii
 import cPickle
 import dumbdbm
 import errno
+import logging
 import os
 import stat
 import threading
@@ -24,7 +25,7 @@ import time
 import types
 import whichdb
 
-from mixminion.Common import MixError, MixFatalError, secureDelete, LOG, \
+from mixminion.Common import MixError, MixFatalError, secureDelete, \
      createPrivateDir, readFile, replaceFile, tryUnlink, writePickled
 from mixminion.Crypto import getCommonPRNG
 
@@ -34,6 +35,10 @@ __all__ = [ "StringStore", "StringMetadataStore",
             "DBBase", "JournaledDBBase", "BooleanJournaledDBBase",
             "CorruptedFile",
             ]
+
+
+log = logging.getLogger(__name__)
+
 
 class CorruptedFile(MixError):
     """Raised when a pickled object cannot be properly decoded."""
@@ -102,7 +107,7 @@ class BaseStore:
         self.dir = location
 
         if not os.path.isabs(location):
-            LOG.warn("Directory path %s isn't absolute.", location)
+            log.warn("Directory path %s isn't absolute.", location)
 
         if os.path.exists(location) and not os.path.isdir(location):
             raise MixFatalError("%s is not a directory" % location)
@@ -273,9 +278,9 @@ class BaseStore:
                             os.path.join(self.dir, s2+"_"+handle))
             except OSError, e:
                 contents = os.listdir(self.dir)
-                LOG.error("Error while trying to change %s from %s to %s: %s",
+                log.error("Error while trying to change %s from %s to %s: %s",
                           handle, s1, s2, e)
-                LOG.error("Directory %s contains: %s", self.dir, contents)
+                log.error("Directory %s contains: %s", self.dir, contents)
                 self.count(1)
                 return
 
@@ -329,7 +334,7 @@ class ObjectStoreMixin:
                 f.close()
                 return res
             except (cPickle.UnpicklingError, EOFError, IOError), e:
-                LOG.error("Found damaged object %s in filestore %s: %s",
+                log.error("Found damaged object %s in filestore %s: %s",
                           handle, self.dir, str(e))
                 self._preserveCorrupted(handle)
                 raise CorruptedFile()
@@ -378,7 +383,7 @@ class BaseMetadataStore(BaseStore):
             if not hSet.get(h):
                 rmv.append("meta_"+h)
         if rmv:
-            LOG.warn("Removing %s orphaned metadata files from %s",
+            log.warn("Removing %s orphaned metadata files from %s",
                      len(rmv), self.dir)
             if secureDeleteFn:
                 secureDeleteFn(rmv)
@@ -396,7 +401,7 @@ class BaseMetadataStore(BaseStore):
                 try:
                     self.getMetadata(h)
                 except KeyError:
-                    LOG.warn("Missing metadata for file %s",h)
+                    log.warn("Missing metadata for file %s",h)
                     self.setMetadata(h, newDataFn(h))
                 except CorruptedFile:
                     continue
@@ -419,7 +424,7 @@ class BaseMetadataStore(BaseStore):
             try:
                 res = cPickle.load(f)
             except cPickle.UnpicklingError, e:
-                LOG.error("Found damaged metadata for %s in filestore %s: %s",
+                log.error("Found damaged metadata for %s in filestore %s: %s",
                           handle, self.dir, str(e))
                 self._preserveCorrupted(handle)
                 raise CorruptedFile()
@@ -467,7 +472,7 @@ class StringMetadataStoreMixin(StringStoreMixin):
     def __init__(self):
         StringStoreMixin.__init__(self)
     def queueMessage(self, message):
-        LOG.warn("Called 'queueMessage' on a metadata store.")
+        log.warn("Called 'queueMessage' on a metadata store.")
         return self.queueMessageAndMetadata(message, None)
     def queueMessageAndMetadata(self, message, metadata):
         f, handle = self.openNewMessage()
@@ -482,7 +487,7 @@ class ObjectMetadataStoreMixin(ObjectStoreMixin):
     def __init__(self):
         ObjectStoreMixin.__init__(self)
     def queueObject(self, object):
-        LOG.warn("Called 'queueObject' on a metadata store.")
+        log.warn("Called 'queueObject' on a metadata store.")
         return self.queueObjectAndMetadata(object, None)
     def queueObjectAndMetadata(self, object, metadata):
         f, handle = self.openNewMessage()
@@ -582,11 +587,11 @@ def openDB(filename, purpose):
         st = None
     # If the file is empty, delete it and start over.
     if st and st[stat.ST_SIZE] == 0:
-        LOG.warn("Half-created database %s found; cleaning up.", filename)
+        log.warn("Half-created database %s found; cleaning up.", filename)
         tryUnlink(filename)
 
     dbtype = whichdb.whichdb(filename)
-    LOG.debug("Opening %s database at %s", purpose, filename)
+    log.debug("Opening %s database at %s", purpose, filename)
     try:
         if dbtype != 'dbhash':
             db = _openDBHash(filename, 'c', 0600)
@@ -609,7 +614,7 @@ def openDB(filename, purpose):
         syncLog = lambda : None
 
     if isinstance(db, dumbdbm._Database):
-        LOG.warn("Warning: using a flat file for %s database", purpose)
+        log.warn("Warning: using a flat file for %s database", purpose)
 
     return db, syncLog
 

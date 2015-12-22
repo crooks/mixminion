@@ -5,6 +5,7 @@
    Code to construct messages and reply blocks, and to decode received
    message payloads."""
 
+import logging
 import operator
 import sys
 import types
@@ -12,7 +13,7 @@ import types
 import mixminion.Crypto as Crypto
 import mixminion.Fragments
 from mixminion.Packet import *
-from mixminion.Common import MixError, MixFatalError, LOG, STATUS, UIError, \
+from mixminion.Common import MixError, MixFatalError, STATUS, UIError, \
      formatBase64
 import mixminion.Packet
 import mixminion._minionlib
@@ -23,6 +24,10 @@ if sys.version_info[:3] < (2,2,0):
 __all__ = ['buildForwardPacket', 'buildEncryptedForwardPacket',
            'buildReplyPacket', 'buildReplyBlock', 'checkPathLength',
            'encodeMessage', 'decodePayload', 'getNPacketsToEncode' ]
+
+
+log = logging.getLogger(__name__)
+
 
 def getNPacketsToEncode(message, overhead, uncompressedFragmentPrefix=""):
     """Return the number of packets that would be needed to encode 'message'.
@@ -69,7 +74,7 @@ def encodeMessage(message, overhead, uncompressedFragmentPrefix="",
     length = len(payload)
 
     if length > 1024 and length*20 <= origLength:
-        LOG.warn("Message is very compressible and will look like a zlib bomb")
+        log.warn("Message is very compressible and will look like a zlib bomb")
 
     paddingLen = PAYLOAD_LEN - SINGLETON_PAYLOAD_OVERHEAD - overhead - length
 
@@ -131,7 +136,7 @@ def buildForwardPacket(payload, exitType, exitInfo, path1, path2,
 
     assert len(payload) == PAYLOAD_LEN
 
-    LOG.trace("  Building packet with path %s:%s; delivering to %04x:%r",
+    log.trace("  Building packet with path %s:%s; delivering to %04x:%r",
                    ",".join([s.getNickname() for s in path1]),
                    ",".join([s.getNickname() for s in path2]),
                    exitType, exitInfo)
@@ -161,12 +166,12 @@ def buildEncryptedForwardPacket(payload, exitType, exitInfo, path1, path2,
         paddingPRNG = Crypto.getCommonPRNG()
     if secretRNG is None: secretRNG = paddingPRNG
 
-    LOG.debug("Encoding encrypted forward message for %s-byte payload",
+    log.debug("Encoding encrypted forward message for %s-byte payload",
                    len(payload))
-    LOG.debug("  Using path %s/%s",
+    log.debug("  Using path %s/%s",
                    [s.getNickname() for s in path1],
                    [s.getNickname() for s in path2])
-    LOG.debug("  Delivering to %04x:%r", exitType, exitInfo)
+    log.debug("  Delivering to %04x:%r", exitType, exitInfo)
 
     # (For encrypted-forward messages, we have overhead for OAEP padding
     #   and the session  key, but we save 20 bytes by spilling into the tag.)
@@ -212,9 +217,9 @@ def buildReplyPacket(payload, path1, replyBlock, paddingPRNG=None):
     if paddingPRNG is None:
         paddingPRNG = Crypto.getCommonPRNG()
 
-    LOG.debug("Encoding reply message for %s-byte payload",
+    log.debug("Encoding reply message for %s-byte payload",
                    len(payload))
-    LOG.debug("  Using path %s/??",[s.getNickname() for s in path1])
+    log.debug("  Using path %s/??",[s.getNickname() for s in path1])
 
     assert len(payload) == PAYLOAD_LEN
 
@@ -251,14 +256,14 @@ def _buildReplyBlockImpl(path, exitType, exitInfo, expiryTime=0,
     if expiryTime is None:
         # XXXX This is dangerous, and should go away; the user should
         # XXXX *always* specify an expiry time.
-        LOG.warn("Inferring expiry time for reply block")
+        log.warn("Inferring expiry time for reply block")
         expiryTime = min([s.getValidUntil() for s in path])
 
     checkPathLength(None, path, exitType, exitInfo, explicitSwap=0)
 
-    LOG.debug("Building reply block for path %s",
+    log.debug("Building reply block for path %s",
                    [s.getNickname() for s in path])
-    LOG.debug("  Delivering to %04x:%r", exitType, exitInfo)
+    log.debug("  Delivering to %04x:%r", exitType, exitInfo)
 
     # The message is encrypted first by the end-to-end key, then by
     # each of the path keys in order. We need to reverse these steps, so we
@@ -405,7 +410,7 @@ def decodePayload(payload, tag, key=None, userKeys=(), retNym=None):
             try:
                 p = _decodeStatelessReplyPayload(payload, tag, userKey)
                 if name:
-                    LOG.info("Decoded reply message to identity %r", name)
+                    log.info("Decoded reply message to identity %r", name)
                 if retNym is not None:
                     retNym.append(name)
                 return p

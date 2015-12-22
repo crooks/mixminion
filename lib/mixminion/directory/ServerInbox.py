@@ -53,7 +53,7 @@ class ServerInbox:
         try:
             server = ServerInfo(string=text,assumeValid=0)
         except MixError, e:
-            LOG.warn("Rejected invalid server from %s: %s", source,e)
+            log.warn("Rejected invalid server from %s: %s", source,e)
             raise UIError("Server descriptor was not valid: %s"%e)
 
         nickname = server.getNickname()
@@ -61,20 +61,20 @@ class ServerInbox:
         try:
             known = self.idCache.containsServer(server)
         except MismatchedID:
-            LOG.warn("Rejected server with mismatched identity from %s",
+            log.warn("Rejected server with mismatched identity from %s",
                      source)
             self.updateQueue.queueRejectedServer(text,server)
             raise UIError(("I already know a server named "
                            "%s with a different key.")%nickname)
 
         if not known:
-            LOG.info("Received previously unknown server %s from %s",
+            log.info("Received previously unknown server %s from %s",
                      nickname, source)
             self.newQueue.queueIncomingServer(text,server)
             raise ServerQueuedException(
                 "Server queued pending manual checking")
         else:
-            LOG.info("Received update for server %s from %s",
+            log.info("Received update for server %s from %s",
                      nickname, source)
             self.updateQueue.queueIncomingServer(text,server)
             return 1
@@ -99,7 +99,7 @@ class ServerInbox:
                                             knownOnly=knownOnly)
                 accepted.append(fname)
             except MixError, e:
-                LOG.warn("ServerList refused to include server %s: %s",
+                log.warn("ServerList refused to include server %s: %s",
                          fname, e)
                 reject.append((fname,server,text,fp))
 
@@ -153,7 +153,7 @@ class ServerInbox:
                 raise UIError("No servers named %s with matching KeyID"%
                               nickname)
             if reject:
-                LOG.warn("Rejecting %s servers named %s with unmatched KeyIDs",
+                log.warn("Rejecting %s servers named %s with unmatched KeyIDs",
                          len(reject), nickname)
 
         try:
@@ -243,7 +243,7 @@ class IncomingQueue:
                 text, server = _readServer(path)
             except MixError, e:
                 os.unlink(path)
-                LOG.warn(
+                log.warn(
                     "Removed a bad server descriptor %s from incoming dir: %s",
                     fname, e)
                 continue
@@ -256,7 +256,7 @@ class IncomingQueue:
            the incoming directory."""
         for fname in fnames:
             if not tryUnlink(os.path.join(self.incomingDir, fname)):
-                LOG.warn("delPendingServers: no such server %s"%fname)
+                log.warn("delPendingServers: no such server %s"%fname)
 
 class ServerQueuedException(Exception):
     """Exception: raised when an incoming server is received for a previously

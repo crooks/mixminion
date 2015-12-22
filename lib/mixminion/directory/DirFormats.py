@@ -66,7 +66,7 @@ def generateVoteDirectory(identity, servers, goodServerNames,
                     string=str(server), validatedDigests=validatedDigests,
                     _keepContents=1)
         except ConfigError,e:
-            LOG.warn("Rejecting malformed serverinfo: %s",e)
+            log.warn("Rejecting malformed serverinfo: %s",e)
         else:
             valid.append(s)
 
@@ -96,21 +96,21 @@ def generateConsensusDirectory(identity, voters, validAfter, directories,
     serverMap = {} # digest->server info
     serversByDir = {} # keyid->list of digest
     for src, val in directories:
-        LOG.debug("Checking vote directory from %s",src)
+        log.debug("Checking vote directory from %s",src)
         val = str(val)
         try:
             directory = mixminion.ServerInfo.SignedDirectory(string=val,
                                   validatedDigests=validatedDigests,
                                   _keepServerContents=1)
         except ConfigError,e:
-            LOG.warn("Rejecting malformed vote directory from %s: %s",src,e)
+            log.warn("Rejecting malformed vote directory from %s: %s",src,e)
             continue
         try:
             checkVoteDirectory(voters, validAfter, directory)
         except BadVote, e:
-            LOG.warn("Rejecting vote directory from %s: %s", src, e)
+            log.warn("Rejecting vote directory from %s: %s", src, e)
             continue
-        LOG.info("Accepting vote directory from %s",src)
+        log.info("Accepting vote directory from %s",src)
 
         # Remember server descs minimally to save room.
         sig = directory.getSignatures()[0]
@@ -124,7 +124,7 @@ def generateConsensusDirectory(identity, voters, validAfter, directories,
 
         del directory.servers[:] # Save RAM
         if goodDirectories.has_key(fp):
-            LOG.warn("Multiple directories with fingerprint %s; ignoring one from %s",
+            log.warn("Multiple directories with fingerprint %s; ignoring one from %s",
                      fp, goodDirectories[fp][0])
         goodDirectories[fp] = (src, directory)
 
@@ -158,7 +158,7 @@ def generateConsensusDirectory(identity, voters, validAfter, directories,
             ident = s.getIdentityDigest()
             try:
                 if n != identNickname[ident]:
-                    LOG.warn("Multiple nicknames for %s",formatBase64(ident))
+                    log.warn("Multiple nicknames for %s",formatBase64(ident))
                     badIdents[ident] = 1
             except KeyError:
                 identNickname[ident]=n

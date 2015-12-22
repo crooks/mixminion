@@ -6,13 +6,17 @@
 
 __all__ = [ "ServerConfig" ]
 
+import logging
 import operator
 import os
 
 import mixminion.Config
 import mixminion.server.Modules
 from mixminion.Config import ConfigError
-from mixminion.Common import LOG
+
+
+log = logging.getLogger(__name__)
+
 
 class ServerConfig(mixminion.Config._ConfigFile):
     ##
@@ -54,9 +58,9 @@ class ServerConfig(mixminion.Config._ConfigFile):
         if not (2048 <= bits <= 4096):
             raise ConfigError("IdentityKeyBits must be between 2048 and 4096")
         if server['EncryptIdentityKey']:
-            LOG.warn("Identity key encryption not yet implemented")
+            log.warn("Identity key encryption not yet implemented")
         if server['EncryptPrivateKey']:
-            LOG.warn("Encrypted private keys not yet implemented")
+            log.warn("Encrypted private keys not yet implemented")
         if server['PublicKeyLifetime'].getSeconds() < 24*60*60:
             raise ConfigError("PublicKeyLifetime must be at least 1 day.")
         if server['PublicKeyOverlap'].getSeconds() < 6*60*60:
@@ -65,35 +69,35 @@ class ServerConfig(mixminion.Config._ConfigFile):
             raise ConfigError("PublicKeyOverlap must be <= 72 hours")
 
         if _haveEntry(self, 'Server', 'Mode'):
-            LOG.warn("Mode specification is not yet supported.")
+            log.warn("Mode specification is not yet supported.")
 
         mixInterval = server['MixInterval'].getSeconds()
         if mixInterval < 30*60:
-            LOG.warn("Dangerously low MixInterval")
+            log.warn("Dangerously low MixInterval")
         if server['MixAlgorithm'] == 'TimedMixPool':
             if _haveEntry(self, 'Server', 'MixPoolRate'):
-                LOG.warn("Option MixPoolRate is not used for Timed mixing.")
+                log.warn("Option MixPoolRate is not used for Timed mixing.")
             if _haveEntry(self, 'Server', 'MixPoolMinSize'):
-                LOG.warn("Option MixPoolMinSize is not used for Timed mixing.")
+                log.warn("Option MixPoolMinSize is not used for Timed mixing.")
         else:
             rate = server['MixPoolRate']
             minSize = server['MixPoolMinSize']
             if rate < 0.05:
-                LOG.warn("Unusually low MixPoolRate %s", rate)
+                log.warn("Unusually low MixPoolRate %s", rate)
             if minSize < 0:
                 raise ConfigError("MixPoolMinSize %s must be nonnegative.")
 
         if not self['Incoming/MMTP'].get('Enabled'):
-            LOG.warn("Disabling incoming MMTP is not yet supported.")
+            log.warn("Disabling incoming MMTP is not yet supported.")
         if [e for e in self._sectionEntries['Incoming/MMTP']
             if e[0] in ('Allow', 'Deny')]:
-            LOG.warn("Allow/deny are not yet supported")
+            log.warn("Allow/deny are not yet supported")
 
         if not self['Outgoing/MMTP'].get('Enabled'):
-            LOG.warn("Disabling outgoing MMTP is not yet supported.")
+            log.warn("Disabling outgoing MMTP is not yet supported.")
         if [e for e in self._sectionEntries['Outgoing/MMTP']
             if e[0] in ('Allow', 'Deny')]:
-            LOG.warn("Allow/deny are not yet supported")
+            log.warn("Allow/deny are not yet supported")
         mc = self['Outgoing/MMTP'].get('MaxConnections')
         if mc is not None and mc < 1:
             raise ConfigError("MaxConnections must be at least 1.")
@@ -112,7 +116,7 @@ class ServerConfig(mixminion.Config._ConfigFile):
            accordingly."""
         self.moduleManager.setPath(section.get('ModulePath'))
         for mod in section.get('Module', []):
-            LOG.info("Loading module %s", mod)
+            log.info("Loading module %s", mod)
             self.moduleManager.loadExtModule(mod)
 
         self._syntax.update(self.moduleManager.getConfigSyntax())
@@ -211,7 +215,7 @@ class ServerConfig(mixminion.Config._ConfigFile):
         if v is None:
             v = self["Server"]["Homedir"]
         if v is None:
-            LOG.warn("Defaulting base directory to /var/spool/minion; this will change.")
+            log.warn("Defaulting base directory to /var/spool/minion; this will change.")
             v = "/var/spool/minion"
         return v
 
@@ -254,28 +258,28 @@ def _validateRetrySchedule(mixInterval, schedule, sectionName):
 
     # Warn if we try for less than a day.
     if total < 24*60*60:
-        LOG.warn("Dangerously low retry timeout for %s (<1 day)", sectionName)
+        log.warn("Dangerously low retry timeout for %s (<1 day)", sectionName)
 
     # Warn if we try for more than two weeks.
     if total > 2*7*24*60*60:
-        LOG.warn("Very high retry timeout for %s (>14 days)", sectionName)
+        log.warn("Very high retry timeout for %s (>14 days)", sectionName)
 
     # Warn if any of our intervals are less than the mix interval...
     if min(schedule) < mixInterval-2:
-        LOG.warn("Rounding retry intervals for %s to the nearest mix",
+        log.warn("Rounding retry intervals for %s to the nearest mix",
                  sectionName)
 
     # ... or less than 5 minutes.
     elif min(schedule) < 5*60:
-        LOG.warn("Very fast retry intervals for %s (< 5 minutes)", sectionName)
+        log.warn("Very fast retry intervals for %s (< 5 minutes)", sectionName)
 
     # Warn if we make fewer than 5 attempts.
     if len(schedule) < 5:
-        LOG.warn("Dangerously low number of retries for %s (<5)", sectionName)
+        log.warn("Dangerously low number of retries for %s (<5)", sectionName)
 
     # Warn if we make more than 50 attempts.
     if len(schedule) > 50:
-        LOG.warn("Very high number of retries for %s (>50)", sectionName)
+        log.warn("Very high number of retries for %s (>50)", sectionName)
 
 #======================================================================
 

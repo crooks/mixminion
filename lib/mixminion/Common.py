@@ -24,6 +24,8 @@ import calendar
 import cPickle
 import errno
 import gzip
+import logging
+import logging.handlers
 import os
 import re
 import signal
@@ -67,6 +69,9 @@ except NameError:
     iter = None
 
 from types import StringType
+
+
+log = logging.getLogger(__name__)
 
 
 class MixError(Exception):
@@ -448,7 +453,7 @@ def checkPrivateFile(fn, fix=1):
             raise MixFilePermissionError("Bad permissions (mode %o) on file %s"
                                          % (mode & 0777, fn))
         newmode = {0: 0600, 0100: 0700}[(mode & 0100)]
-        LOG.warn("Repairing permissions on file %s" % fn)
+        log.warn("Repairing permissions on file %s" % fn)
         os.chmod(fn, newmode)
 
 
@@ -526,7 +531,7 @@ def checkPrivateDir(d, recurse=1):
             # FFFF We may want to give an even stronger error here.
             if _CHECK_GID and d not in _WARNED_DIRECTORIES:
                 groupName = _gidToName(st[stat.ST_GID])
-                LOG.warn("Directory %s is writable by group %s (mode %o)",
+                log.warn("Directory %s is writable by group %s (mode %o)",
                          d, groupName, mode & 0777)
                 _WARNED_DIRECTORIES[d] = 1
 
@@ -603,7 +608,7 @@ class AtomicFile:
 
     def __del__(self):
         if self.f:
-            LOG.error("Atomic file not closed/discarded: %s", self.tmpname)
+            log.error("Atomic file not closed/discarded: %s", self.tmpname)
 
 
 def iterFileLines(f):
@@ -830,7 +835,7 @@ def secureDelete(fnames, blocking=0):
         except OSError, e:
             if e.errno not in (errno.EAGAIN, errno.ENOMEM):
                 raise
-            LOG.warn("Transient error while shredding files: %s", e)
+            log.warn("Transient error while shredding files: %s", e)
             for f in files:
                 if os.path.exists(f):
                     _overwriteFile(f)
@@ -1134,8 +1139,57 @@ class Log:
         "Same as log_exc, but logs a fatal message."
         self.log_exc("FATAL", (exclass, ex, tb), message, *args)
 
-# The global 'Log' instance for the mixminion client or server.
-LOG = Log('WARN')
+def initLogging(config):
+    # Python's logging module doesn't include TRACE by default.
+    logging.TRACE = 9
+    logging.addLevelName(logging.TRACE, "TRACE")
+    def trace(self, message, *args, **kws):
+        if self.isEnabledFor(logging.TRACE):
+            self._log(logging.TRACE, message, args, **kws)
+    logging.Logger.trace = trace
+
+    # Map loglevels so they can be easily defined in a config file
+    loglevels = {'trace': logging.TRACE,
+                 'debug': logging.DEBUG,
+                 'info': logging.INFO,
+                 'warn': logging.WARN,
+                 'error': logging.ERROR,
+                 'critical': logging.CRITICAL}
+    # Now set the loglevel
+    loglevel = config['Server'].get('LogLevel', "warn").lower()
+    if loglevel not in loglevels:
+        sys.stderr.write("Unknown loglevel %s, using \"warn\"\n" % loglevel)
+        loglevel = "warn"
+    # Set the logfile name
+    logfile = config.getLogFile()
+
+    # Create the mixminion logging instance
+    log = logging.getLogger('mixminion')
+    log.setLevel(logging.TRACE)
+    # Create log file handler
+    fh = logging.handlers.TimedRotatingFileHandler(
+        logfile,
+        when='midnight',
+        interval=1,
+        backupCount=5,
+        utc=False)
+    fh.setLevel(loglevels[loglevel])
+    # Create log console handler
+    ch = logging.StreamHandler()
+    if config['Server'].get('Daemon', 0):
+        ch.setLevel(loglevels[loglevel])
+    else:
+        ch.setLevel(logging.ERROR)
+    # Define log and date/time formats
+    formatter = logging.Formatter(
+        '%(asctime)s %(module)s [%(levelname)s] %(message)s',
+        '%b-%d %H:%M:%S')
+    ch.setFormatter(formatter)
+    fh.setFormatter(formatter)
+    # Add handlers to log
+    log.addHandler(ch)
+    log.addHandler(fh)
+    return log
 
 
 class LogStream:
@@ -1612,7 +1666,7 @@ def isSMTPMailbox(s):
 def waitForChildren(onceOnly=0, blocking=1):
     """Wait until all subprocesses have finished.  Useful for testing."""
     if sys.platform == 'win32':
-        LOG.trace("Skipping waitForChildren")
+        log.trace("Skipping waitForChildren")
         return
     if blocking:
         options = 0
@@ -1857,5 +1911,5 @@ def _warn_no_locks():
     global _warned_no_locks
     if not _warned_no_locks:
         _warned_no_locks = 1
-        LOG.warn("Mixminion couldn't find a file locking implementation.")
-        LOG.warn("  (Simultaneous accesses may lead to data corruption.")
+        log.warn("Mixminion couldn't find a file locking implementation.")
+        log.warn("  (Simultaneous accesses may lead to data corruption.")

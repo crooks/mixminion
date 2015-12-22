@@ -12,6 +12,7 @@ __all__ = ['ModuleManager', 'DeliveryModule',
            'DELIVER_OK', 'DELIVER_FAIL_RETRY', 'DELIVER_FAIL_NORETRY']
 
 import errno
+import logging
 import os
 import re
 import sys
@@ -36,10 +37,14 @@ import mixminion.server.ServerConfig
 import mixminion.server.EventStats as EventStats
 import mixminion.server.PacketHandler
 from mixminion.Config import ConfigError
-from mixminion.Common import LOG, MixError, ceilDiv, createPrivateDir, \
+from mixminion.Common import MixError, ceilDiv, createPrivateDir, \
     encodeBase64, floorDiv, isPrintingAscii, isSMTPMailbox, previousMidnight,\
     readFile, waitForChildren
 from mixminion.Packet import ParseError, CompressedDataTooLong, uncompressData
+
+
+log = logging.getLogger(__name__)
+
 
 # Return values for processMessage
 DELIVER_OK = 1
@@ -156,20 +161,19 @@ class ImmediateDeliveryQueue:
         """Instead of queueing our message, pass it directly to the underlying
            DeliveryModule."""
         try:
-            EventStats.log.attemptedDelivery()  # FFFF
+            EventStats.elog.attemptedDelivery()  # FFFF
             res = self.module.processMessage(packet)
             if res == DELIVER_OK:
-                EventStats.log.successfulDelivery()  # FFFF
+                EventStats.elog.successfulDelivery()  # FFFF
             elif res == DELIVER_FAIL_RETRY:
-                LOG.error("Unable to retry delivery for message")
-                EventStats.log.unretriableDelivery()  # FFFF
+                log.error("Unable to retry delivery for message")
+                EventStats.elog.unretriableDelivery()  # FFFF
             else:
-                LOG.error("Unable to deliver message")
-                EventStats.log.unretriableDelivery()  # FFFF
+                log.error("Unable to deliver message")
+                EventStats.elog.unretriableDelivery()  # FFFF
         except:
-            LOG.error_exc(sys.exc_info(),
-                          "Exception delivering message")
-            EventStats.log.unretriableDelivery()  # FFFF
+            log.exception("Exception delivering message")
+            EventStats.elog.unretriableDelivery()  # FFFF
 
         return "<nil>"
 
@@ -206,7 +210,7 @@ class SimpleModuleDeliveryQueue(mixminion.server.ServerQueue.DeliveryQueue):
         for handle in msgList:
             try:
                 dh = handle.getHandle()  # display handle
-                EventStats.log.attemptedDelivery()  # FFFF
+                EventStats.elog.attemptedDelivery()  # FFFF
                 try:
                     packet = handle.getMessage()
                 except mixminion.Filestore.CorruptedFile:
@@ -216,25 +220,24 @@ class SimpleModuleDeliveryQueue(mixminion.server.ServerQueue.DeliveryQueue):
                 if not packet:
                     pass  # Python<2.1 doesn't allow 'continue' inside 'try'.
                 elif result == DELIVER_OK:
-                    LOG.debug("Successfully delivered message MOD:%s", dh)
+                    log.debug("Successfully delivered message MOD:%s", dh)
                     handle.succeeded()
-                    EventStats.log.successfulDelivery()  # FFFF
+                    EventStats.elog.successfulDelivery()  # FFFF
                 elif result == DELIVER_FAIL_RETRY:
-                    LOG.debug("Unable to deliver message MOD:%s; will retry",
+                    log.debug("Unable to deliver message MOD:%s; will retry",
                               dh)
                     handle.failed(1)
-                    EventStats.log.failedDelivery()  # FFFF
+                    EventStats.elog.failedDelivery()  # FFFF
                 else:
                     assert result == DELIVER_FAIL_NORETRY
-                    LOG.error("Unable to deliver message MOD:%s; giving up",
+                    log.error("Unable to deliver message MOD:%s; giving up",
                               dh)
                     handle.failed(0)
-                    EventStats.log.unretriableDelivery()  # FFFF
+                    EventStats.elog.unretriableDelivery()  # FFFF
             except:
-                LOG.error_exc(sys.exc_info(),
-                              "Exception delivering message")
+                log.exception("Exception delivering message")
                 handle.failed(0)
-                EventStats.log.unretriableDelivery()  # FFFF
+                EventStats.elog.unretriableDelivery()  # FFFF
 
 
 class DeliveryThread(threading.Thread):
@@ -258,7 +261,7 @@ class DeliveryThread(threading.Thread):
 
     def shutdown(self):
         """Tell this thread to shut down after sending further messages."""
-        LOG.info("Telling delivery thread to shut down.")
+        log.info("Telling delivery thread to shut down.")
         self.__stoppingevent.set()
         self.event.set()
 
@@ -269,14 +272,13 @@ class DeliveryThread(threading.Thread):
                 self.event.clear()
                 stop = self.__stoppingevent.isSet()
                 if stop:
-                    LOG.info("Delivery thread shutting down.")
+                    log.info("Delivery thread shutting down.")
                     self.moduleManager.close()
                     return
                 self.moduleManager._sendReadyMessages()
                 waitForChildren(blocking=0)
         except:
-            LOG.error_exc(sys.exc_info(),
-                          "Exception in delivery; shutting down thread.")
+            log.exception("Exception in delivery; shutting down thread.")
 
 
 class ModuleManager:
@@ -354,7 +356,7 @@ class ModuleManager:
     def registerModule(self, module):
         """Inform this ModuleManager about a delivery module.  This method
            updates the syntax options, but does not enable the module."""
-        LOG.info("Loading module %s", module.getName())
+        log.info("Loading module %s", module.getName())
         self.modules.append(module)
         syn = module.getConfigSyntax()
         for sec, rules in syn.items():
@@ -379,7 +381,7 @@ class ModuleManager:
         pyPkg = ".".join(ids[:-1])
         pyClassName = ids[-1]
         orig_path = sys.path[:]
-        LOG.info("Loading module %s", className)
+        log.info("Loading module %s", className)
         try:
             sys.path[0:0] = self.path
             try:
@@ -422,7 +424,7 @@ class ModuleManager:
                                      module.getName()))
             self.typeToModule[t] = module
 
-        LOG.info("Module %s: enabled for types %s",
+        log.info("Module %s: enabled for types %s",
                  module.getName(),
                  map(hex, module.getExitTypes()))
 
@@ -438,7 +440,7 @@ class ModuleManager:
 
     def disableModule(self, module):
         """Unmaps all the types for a module object."""
-        LOG.debug("Disabling module %s", module.getName())
+        log.debug("Disabling module %s", module.getName())
         for t in module.getExitTypes():
             if (t in self.typeToModule and
                     self.typeToModule[t].getName() == module.getName()):
@@ -456,18 +458,18 @@ class ModuleManager:
 
         mod = self.typeToModule.get(exitType)
         if mod is None:
-            LOG.error("Unable to handle packet with unknown type %s",
+            log.error("Unable to handle packet with unknown type %s",
                       exitType)
             return "<nil>"
         try:
             packet.setTagged(mod.usesDecodingHandle())
         except ParseError:
-            LOG.error("Packet (type %04x) missing decoding handle; dropped",
+            log.error("Packet (type %04x) missing decoding handle; dropped",
                       exitType)
             return "<nil>"
 
         queue = self.queues[mod.getName()]
-        LOG.debug("Delivering packet %r (type %04x) via module %s",
+        log.debug("Delivering packet %r (type %04x) via module %s",
                   packet.getContents()[:8], exitType, mod.getName())
 
         return queue.queueDeliveryMessage(packet)
@@ -550,7 +552,7 @@ class DropModule(DeliveryModule):
         return ImmediateDeliveryQueue(self)
 
     def processMessage(self, packet):
-        LOG.debug("Dropping padding message")
+        log.debug("Dropping padding message")
         return DELIVER_OK
 
 
@@ -617,10 +619,10 @@ class FragmentModule(DeliveryModule):
             deliverSize = config.get(ds, {}).get('MaximumSize')
 
             if maxSize > deliverSize:
-                LOG.warn("Delivery/Fragmented MaximumSize is larger than can "
+                log.warn("Delivery/Fragmented MaximumSize is larger than can "
                          "be delivered with %s MaximumSize", ds)
             elif deliverSize > maxSize * 10:
-                LOG.warn("%s MaximumSize is larger than is likely to be "
+                log.warn("%s MaximumSize is larger than is likely to be "
                          "reassembled from Delivery/Fragmented MaximumSize"
                          % maxSize)
 
@@ -705,14 +707,14 @@ class FragmentDeliveryQueue:
 
     def queueDeliveryMessage(self, packet, retry=0, lastAttempt=0):
         if packet.isError():
-            LOG.warn("Dropping FRAGMENT packet with decoding error: %s",
+            log.warn("Dropping FRAGMENT packet with decoding error: %s",
                      packet.error)
             return
         elif not packet.isFragment():
-            LOG.warn("Dropping FRAGMENT packet with non-fragment payload.")
+            log.warn("Dropping FRAGMENT packet with non-fragment payload.")
             return
         elif packet.getAddress():
-            LOG.warn("Dropping FRAGMENT packet with spurious addressing info.")
+            log.warn("Dropping FRAGMENT packet with spurious addressing info.")
             return
         # Should be instance of FragmentPayload.
         payload = packet.getDecodedPayload()
@@ -742,12 +744,12 @@ class FragmentDeliveryQueue:
                         msg)
                     del msg
                 except ParseError:
-                    LOG.warn("Dropping malformed server-side fragmented "
+                    log.warn("Dropping malformed server-side fragmented "
                              "message")
                     self.pool.markMessageCompleted(msgid, rejected=1)
                     continue
                 if len(ssfm.compressedContents) > self.module.maxMessageSize:
-                    LOG.warn("Dropping over-long fragmented message")
+                    log.warn("Dropping over-long fragmented message")
                     self.pool.markMessageCompleted(msgid, rejected=1)
                     continue
 
@@ -1005,11 +1007,11 @@ def _cleanMaxSize(sz, modname):
        as the name of the module in warning messages.
     """
     if sz < 32 * 1024:
-        LOG.warn("Ignoring low maximum message size for %s", modname)
+        log.warn("Ignoring low maximum message size for %s", modname)
         sz = 32 * 1024
     if sz & 0x3FF:
         kb = floorDiv(sz, 1024) + 1
-        LOG.warn("Rounding %s maximum message size up to %s KB", modname, kb)
+        log.warn("Rounding %s maximum message size up to %s KB", modname, kb)
         sz = 1024 * kb
     return sz
 
@@ -1057,7 +1059,7 @@ class MailBase:
         """
 
         if len(packet.getContents()) > self.maxMessageSize:
-            LOG.warn("Dropping over-long message (message is %sb; max is %sb)",
+            log.warn("Dropping over-long message (message is %sb; max is %sb)",
                      len(packet.getContents()), self.maxMessageSize)
             return None
 
@@ -1172,7 +1174,7 @@ class MBoxModule(DeliveryModule, MailBase):
                               % sec['AddressFile'])
         for field in ['ReturnAddress', 'RemoveContact']:
             if not isSMTPMailbox(sec[field]):
-                LOG.warn("Value of %s (%s) doesn't look like an email address",
+                log.warn("Value of %s (%s) doesn't look like an email address",
                          field, sec[field])
         if (sec['SMTPServer'] is not None and
                 sec['SendmailCommand'] is not None):
@@ -1228,7 +1230,7 @@ class MBoxModule(DeliveryModule, MailBase):
                 raise ConfigError("Bad address on line %s of %s"
                                   % (lineno, self.addressFile))
             self.addresses[m.group(1)] = m.group(2)
-            LOG.trace("Mapping MBOX address %s -> %s", m.group(1),
+            log.trace("Mapping MBOX address %s -> %s", m.group(1),
                       m.group(2))
 
         moduleManager.enableModule(self)
@@ -1257,12 +1259,12 @@ class MBoxModule(DeliveryModule, MailBase):
     def processMessage(self, packet):  # message, tag, exitType, address):
         # Determine that message's address;
         assert packet.getExitType() == mixminion.Packet.MBOX_TYPE
-        LOG.debug("Received MBOX message")
+        log.debug("Received MBOX message")
         info = mixminion.Packet.parseMBOXInfo(packet.getAddress())
         try:
             address = self.addresses[info.user]
         except KeyError:
-            LOG.error("Unknown MBOX user %r", info.user)
+            log.error("Unknown MBOX user %r", info.user)
             return DELIVER_FAIL_NORETRY
 
         # Generate the boilerplate (FFFF Make this more configurable)
@@ -1342,7 +1344,7 @@ class DirectSMTPModule(SMTPModule):
         if fn and not os.path.exists(fn):
             raise ConfigError("Blacklist file %s seems not to exist" % fn)
         if not isSMTPMailbox(sec['ReturnAddress']):
-            LOG.warn("Return address (%s) doesn't look like an email address",
+            log.warn("Return address (%s) doesn't look like an email address",
                      sec['ReturnAddress'])
         if (sec['SMTPServer'] is not None and
                 sec['SendmailCommand'] is not None):
@@ -1376,18 +1378,18 @@ class DirectSMTPModule(SMTPModule):
 
     def processMessage(self, packet):
         assert packet.getExitType() == mixminion.Packet.SMTP_TYPE
-        LOG.debug("Received SMTP message")
+        log.debug("Received SMTP message")
         # parseSMTPInfo will raise a parse error if the mailbox is invalid.
         try:
             address = mixminion.Packet.parseSMTPInfo(packet.getAddress()).email
         except ParseError:
-            LOG.warn("Dropping SMTP message to invalid address %r",
+            log.warn("Dropping SMTP message to invalid address %r",
                      packet.getAddress())
             return DELIVER_FAIL_NORETRY
 
         # Now, have we blacklisted this address?
         if self.blacklist and self.blacklist.contains(address):
-            LOG.warn("Dropping message to blacklisted address %r", address)
+            log.warn("Dropping message to blacklisted address %r", address)
             return DELIVER_FAIL_NORETRY
 
         msg = self._formatEmailMessage(address, packet)
@@ -1477,7 +1479,7 @@ class MixmasterSMTPModule(SMTPModule):
         try:
             info = mixminion.Packet.parseSMTPInfo(packet.getAddress())
         except ParseError:
-            LOG.warn("Dropping SMTP message to invalid address %r",
+            log.warn("Dropping SMTP message to invalid address %r",
                      packet.getAddress())
             return DELIVER_FAIL_NORETRY
 
@@ -1490,15 +1492,15 @@ class MixmasterSMTPModule(SMTPModule):
         cmd = self.command
         opts = self.options + (self.tmpQueue.getMessagePath(handle),)
         try:
-            LOG.debug("Calling %s %s", cmd, " ".join(opts))
+            log.debug("Calling %s %s", cmd, " ".join(opts))
             code = os.spawnl(os.P_WAIT, cmd, cmd, *opts)
         except OSError, e:
             if e.errno not in (errno.EAGAIN, errno.ENOMEM, errno.ECHILD):
-                raise LOG.warn("Transient error while running Mixmaster: %s",
+                raise log.warn("Transient error while running Mixmaster: %s",
                                e)
             return DELIVER_FAIL_RETRY
 
-        LOG.debug("Queued Mixmaster message: exit code %s", code)
+        log.debug("Queued Mixmaster message: exit code %s", code)
         self.tmpQueue.removeMessage(handle)
         return DELIVER_OK
 
@@ -1506,13 +1508,13 @@ class MixmasterSMTPModule(SMTPModule):
         """Send all pending messages from the Mixmaster queue.  This
            should be called after invocations of processMessage."""
         cmd = self.command
-        LOG.debug("Flushing Mixmaster pool")
+        log.debug("Flushing Mixmaster pool")
         try:
-            LOG.debug("Calling %s -S", cmd)
+            log.debug("Calling %s -S", cmd)
             os.spawnl(os.P_WAIT, cmd, cmd, "-S")
         except OSError, e:
             if e.errno not in (errno.EAGAIN, errno.ENOMEM, errno.ECHILD):
-                raise LOG.warn("Transient error while running Mixmaster: %s",
+                raise log.warn("Transient error while running Mixmaster: %s",
                                e)
             return DELIVER_FAIL_RETRY
 
@@ -1535,7 +1537,7 @@ def checkMailHeaders(headers):
        for an outgoing email message.  Raise ParseError if they are not."""
     for k in headers.keys():
         if k not in MAIL_HEADERS:
-            LOG.warn("Skipping unrecognized mail header %s", k)
+            log.warn("Skipping unrecognized mail header %s", k)
 
     fromAddr = headers['FROM']
     if re.search(r'[\[\]:"]', fromAddr):
@@ -1558,26 +1560,26 @@ def sendSMTPMessage(cfgSection, toList, fromAddr, message):
     if cfgSection['SendmailCommand'] is not None:
         cmd, args = cfgSection['SendmailCommand']
         args.insert(0, cmd)
-        LOG.debug("Using Sendmail Command: %s", " ".join(args))
+        log.debug("Using Sendmail Command: %s", " ".join(args))
         p = subprocess.Popen(args,
                              stdin=subprocess.PIPE,
                              stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE)
         out, err = p.communicate(message)
         if len(out) > 0:
-            LOG.warn("%s said on stdout: %s", cmd, out)
+            log.warn("%s said on stdout: %s", cmd, out)
         if len(err) > 0:
-            LOG.warn("%s said on stderr: %s", cmd, out)
+            log.warn("%s said on stderr: %s", cmd, out)
         res = DELIVER_OK
     else:
         server = cfgSection.get('SMTPServer', 'localhost')
-        LOG.debug("Sending message via SMTP host %s to %s", server, toList)
+        log.debug("Sending message via SMTP host %s to %s", server, toList)
         con = smtplib.SMTP(server)
         try:
             con.sendmail(fromAddr, toList, message)
             res = DELIVER_OK
         except (smtplib.SMTPException, socket.error), e:
-            LOG.warn("Unsuccessful SMTP connection to %s: %s",
+            log.warn("Unsuccessful SMTP connection to %s: %s",
                      server, str(e))
             res = DELIVER_FAIL_RETRY
 

@@ -4,14 +4,18 @@
    background threads and cachhe the results.
    """
 
+import logging
 import threading
 import time
 import sys
 import mixminion.NetUtils
-from mixminion.Common import LOG
 from mixminion.ThreadUtils import TimeoutQueue, QueueEmpty
 
 __all__ = [ 'DNSCache' ]
+
+
+log = logging.getLogger(__name__)
+
 
 class _Pending:
     """Class to represent resolves that we're waiting for an answer on."""
@@ -117,13 +121,13 @@ class DNSCache:
                 self.callbacks.setdefault(name, []).append(cb)
             # If we aren't looking up the answer, start looking it up.
             if v is None:
-                LOG.trace("DNS cache starting lookup of %r", name)
+                log.trace("DNS cache starting lookup of %r", name)
                 self._beginLookup(name)
         finally:
             self.lock.release()
         # If we _did_ have an answer, invoke the callback now.
         if v is not None and v is not PENDING:
-            LOG.trace("DNS cache returning cached value %s for %r",
+            log.trace("DNS cache returning cached value %s for %r",
                       v,name)
             cb(name,v)
 
@@ -259,11 +263,10 @@ class DNSThread(threading.Thread):
                     _lookupDone(hostname, result)
                     _adjBusyThreads(-1)
             except QueueEmpty:
-                LOG.debug("DNS thread shutting down: idle for %s seconds.",
+                log.debug("DNS thread shutting down: idle for %s seconds.",
                          MAX_THREAD_IDLE)
             except:
-                LOG.error_exc(sys.exc_info(),
-                              "Exception in DNS thread; shutting down.")
+                log.exception("Exception in DNS thread; shutting down.")
         finally:
             _adjLiveThreads(-1)
 

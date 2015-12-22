@@ -305,7 +305,7 @@ class IDCache:
     def load(self):
         """Re-read the cache from disk."""
         if not os.path.exists(self.location):
-            LOG.info("No ID cache; will create")
+            log.info("No ID cache; will create")
             self.cache = {}
             return
         try:

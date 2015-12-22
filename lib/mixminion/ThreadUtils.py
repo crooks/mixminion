@@ -9,14 +9,18 @@
 __all__ = [ 'MessageQueue', 'QueueEmpty', 'ClearableQueue', 'TimeoutQueue',
             'RWLock', 'ProcessingThread', 'BackgroundingDecorator' ]
 
+import logging
 import sys
 import threading
 import time
-from mixminion.Common import LOG
 
 import thread
 _get_ident = thread.get_ident
 del thread
+
+
+log = logging.getLogger(__name__)
+
 
 #----------------------------------------------------------------------
 # Queues
@@ -308,7 +312,7 @@ class ProcessingThread(threading.Thread):
 
     def shutdown(self,flush=1):
         """Tells this thread to shut down once the current job is done."""
-        LOG.info("Telling %s to shut down.", self.threadName)
+        log.info("Telling %s to shut down.", self.threadName)
         if flush:
             self.mqueue.clear()
         self.mqueue.put(ProcessingThread._Shutdown())
@@ -326,11 +330,10 @@ class ProcessingThread(threading.Thread):
                 job = self.mqueue.get()
                 job()
         except ProcessingThread._Shutdown:
-            LOG.info("Shutting down %s",self.threadName)
+            log.info("Shutting down %s",self.threadName)
             return
         except:
-            LOG.error_exc(sys.exc_info(),
-                          "Exception in %s; shutting down thread.",
+            log.exception("Exception in %s; shutting down thread.",
                           self.threadName)
 
 class BackgroundingDecorator:

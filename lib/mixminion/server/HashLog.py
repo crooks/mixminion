@@ -5,13 +5,18 @@
    Persistent memory for the hashed secrets we've seen.  Used by
    PacketHandler to prevent replay attacks."""
 
+import logging
 import os
 import threading
 import mixminion.Filestore
-from mixminion.Common import MixFatalError, LOG, secureDelete
+from mixminion.Common import MixFatalError, secureDelete
 from mixminion.Packet import DIGEST_LEN
 
 __all__ = [ 'HashLog', 'getHashLog', 'deleteHashLog' ]
+
+
+log = logging.getLogger(__name__)
+
 
 # FFFF Mechanism to force a different default db module.
 
@@ -34,9 +39,9 @@ def getHashLog(filename, keyid):
             keyid_orig, hl = _OPEN_HASHLOGS[filename]
             if keyid != keyid_orig:
                 raise MixFatalError("KeyID changed for hashlog %s"%filename)
-            LOG.trace("getHashLog() returning open hashlog at %s",filename)
+            log.trace("getHashLog() returning open hashlog at %s",filename)
         except KeyError:
-            LOG.trace("getHashLog() opening hashlog at %s",filename)
+            log.trace("getHashLog() opening hashlog at %s",filename)
             hl = HashLog(filename, keyid)
             _OPEN_HASHLOGS[filename] = (keyid, hl)
         return hl
@@ -49,10 +54,10 @@ def deleteHashLog(filename):
         _HASHLOG_DICT_LOCK.acquire()
         try:
             _, hl = _OPEN_HASHLOGS[filename]
-            LOG.trace("deleteHashLog() removing open hashlog at %s",filename)
+            log.trace("deleteHashLog() removing open hashlog at %s",filename)
             hl.close()
         except KeyError:
-            LOG.trace("deleteHashLog() removing closed hashlog at %s",filename)
+            log.trace("deleteHashLog() removing closed hashlog at %s",filename)
             pass
         remove = []
         parent,name = os.path.split(filename)

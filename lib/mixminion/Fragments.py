@@ -5,17 +5,22 @@
    Code to fragment and reassemble messages."""
 
 import binascii
+import logging
 import math
 import time
 import mixminion._minionlib
 import mixminion.Filestore
 from mixminion.Crypto import ceilDiv, getCommonPRNG, sha1, whiten, unwhiten
-from mixminion.Common import disp64, LOG, previousMidnight, MixError, \
+from mixminion.Common import disp64, previousMidnight, MixError, \
      MixFatalError
 from mixminion.Packet import ENC_FWD_OVERHEAD, PAYLOAD_LEN, \
      FRAGMENT_PAYLOAD_OVERHEAD
 
 __all__ = [ "FragmentPool", "FragmentationParams" ]
+
+
+log = logging.getLogger(__name__)
+
 
 # Largest number of allowed fragments in a single chunk.  Must be a power
 # of two.
@@ -160,9 +165,9 @@ class FragmentPool:
                   otherwise, log at DEBUG.
         """
         if verbose:
-            say = LOG.info
+            say = log.info
         else:
-            say = LOG.debug
+            say = log.debug
         if now is None:
             now = time.time()
         today = previousMidnight(now)
@@ -200,7 +205,7 @@ class FragmentPool:
             return fragmentPacket.msgID
         except MismatchedFragment, s:
             # Remove the other fragments, mark msgid as bad.
-            LOG.warn("Found inconsistent fragment %s in message %s: %s",
+            log.warn("Found inconsistent fragment %s in message %s: %s",
                      fragmentPacket.index+1, disp64(fragmentPacket.msgID,12),
                      s)
             self._deleteMessageIDs({ meta.messageid : 1}, "REJECTED", now)
@@ -274,7 +279,7 @@ class FragmentPool:
         unneededHandles = [] # list of handles that aren't needed.
         for h, fm in meta.items():
             if not fm:
-                LOG.debug("Removing fragment %s with missing metadata", h)
+                log.debug("Removing fragment %s with missing metadata", h)
                 self.store.removeMessage(h)
                 continue
             try:
@@ -294,7 +299,7 @@ class FragmentPool:
                 # Mark the message ID for this fragment as inconsistent.
                 badMessageIDs[mid] = 1
             except UnneededFragment:
-                LOG.warn("Found redundant fragment %s in pool", h)
+                log.warn("Found redundant fragment %s in pool", h)
                 # Remember that this message is unneeded.
                 unneededHandles.append(h)
 
@@ -308,7 +313,7 @@ class FragmentPool:
                 fm = meta[h]
             except KeyError:
                 continue
-            LOG.debug("Removing unneeded fragment %s from message ID %r",
+            log.debug("Removing unneeded fragment %s from message ID %r",
                       fm.idx, fm.messageid)
             self.store.removeMessage(h)
 
@@ -330,13 +335,13 @@ class FragmentPool:
             today = time.time()
         today = previousMidnight(today)
         if why == 'REJECTED':
-            LOG.debug("Removing bogus messages by IDs: %s",
+            log.debug("Removing bogus messages by IDs: %s",
                       messageIDSet.keys())
         elif why == "COMPLETED":
-            LOG.debug("Removing completed messages by IDs: %s",
+            log.debug("Removing completed messages by IDs: %s",
                       messageIDSet.keys())
         else:
-            LOG.debug("Removing messages by IDs: %s",
+            log.debug("Removing messages by IDs: %s",
                       messageIDSet.keys())
 
         for mid in messageIDSet.keys():
@@ -544,7 +549,7 @@ class MessageState:
         self.chunks[fm.chunkNum] = (h,fm)
 
         if self.fragmentsByChunk[fm.chunkNum]:
-            LOG.warn("Found a chunk with unneeded fragments for message %r",
+            log.warn("Found a chunk with unneeded fragments for message %r",
                      self.messageid)
 
         if self.readyChunks.get(fm.chunkNum):

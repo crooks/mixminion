@@ -95,7 +95,7 @@ class DirectoryStoreModule(DeliveryModule):
         elif exitInfo == 'FAIL!':
             return DELIVER_FAIL_NORETRY
 
-        LOG.debug("Delivering test message")
+        log.debug("Delivering test message")
 
         m = _escapeMessageForEmail(packet)
         if m is None:

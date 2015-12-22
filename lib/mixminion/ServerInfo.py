@@ -10,6 +10,7 @@
 __all__ = [ 'ServerInfo', 'ServerDirectory', 'displayServerByRouting',
             'getNicknameByKeyID', 'SignedDirectory', 'parseDirectory' ]
 
+import logging
 import re
 import time
 
@@ -17,11 +18,15 @@ import mixminion.Config
 import mixminion.MMTPClient
 import mixminion.Packet
 
-from mixminion.Common import IntervalSet, LOG, MixError, createPrivateDir, \
+from mixminion.Common import IntervalSet, MixError, createPrivateDir, \
      formatBase64, formatDate, formatTime, readPossiblyGzippedFile
 from mixminion.Config import ConfigError
 from mixminion.Crypto import CryptoError, DIGEST_LEN, pk_check_signature, \
      pk_encode_public_key, pk_fingerprint, pk_sign, sha1
+
+
+log = logging.getLogger(__name__)
+
 
 # Longest allowed Contact email
 MAX_CONTACT = 256
@@ -220,7 +225,7 @@ class ServerInfo(mixminion.Config._ConfigFile):
             versionkey, versionval = v
             for k,v,_ in ents:
                 if k == versionkey and v.strip() != versionval:
-                    LOG.warn("Skipping %s section with unrecognized version %s"
+                    log.warn("Skipping %s section with unrecognized version %s"
                              , name, v.strip())
                     break
             else:
@@ -630,7 +635,7 @@ class SignedDirectory:
         for idx in range(len(sigs)):
             sig = _DirectorySignature(sigs[idx])
             if sig.getDigest() != digest:
-                LOG.warn("Signature #%s does not match directory; skipping",
+                log.warn("Signature #%s does not match directory; skipping",
                          idx+1)
                 badsigs += 1
             else:
@@ -665,11 +670,11 @@ class SignedDirectory:
                 #XXXX008 log something.
                 continue
             if s.checkSignature():
-                LOG.trace("Found valid signature from %s at %s",
+                log.trace("Found valid signature from %s at %s",
                           digest, url)
                 self.signers.append((digest, url))
             else:
-                LOG.trace("Signature claiming to be from %s was not valid",
+                log.trace("Signature claiming to be from %s was not valid",
                           digest)
                 continue
 

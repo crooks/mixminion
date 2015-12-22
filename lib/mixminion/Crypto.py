@@ -10,6 +10,7 @@
 import binascii
 import copy_reg
 import errno
+import logging
 import math
 import os
 import stat
@@ -18,7 +19,7 @@ import threading
 from types import StringType
 
 import mixminion._minionlib as _ml
-from mixminion.Common import MixError, MixFatalError, floorDiv, ceilDiv, LOG
+from mixminion.Common import MixError, MixFatalError, floorDiv, ceilDiv
 
 __all__ = ['AESCounterPRNG', 'CryptoError', 'Keyset', 'bear_decrypt',
            'bear_encrypt', 'ctr_crypt', 'getCommonPRNG', 'init_crypto',
@@ -32,6 +33,10 @@ __all__ = ['AESCounterPRNG', 'CryptoError', 'Keyset', 'bear_decrypt',
            'AES_KEY_LEN', 'DIGEST_LEN', 'HEADER_SECRET_MODE', 'PRNG_MODE',
            'RANDOM_JUNK_MODE', 'HEADER_ENCRYPT_MODE', 'APPLICATION_KEY_MODE',
            'PAYLOAD_ENCRYPT_MODE', 'HIDE_HEADER_MODE']
+
+
+log = logging.getLogger(__name__)
+
 
 # Expose _minionlib.CryptoError as Crypto.CryptoError
 CryptoError = _ml.CryptoError
@@ -776,26 +781,26 @@ def configure_trng(config):
         verbose = (filename == requestedFile)
         if not os.path.exists(filename):
             if verbose:
-                LOG.warn("No such file as %s", filename)
+                log.warn("No such file as %s", filename)
         else:
             st = os.stat(filename)
             if not (st[stat.ST_MODE] & stat.S_IFCHR):
                 if verbose:
-                    LOG.error("Entropy source %s isn't a character device",
+                    log.error("Entropy source %s isn't a character device",
                               filename)
             else:
                 randFile = filename
                 break
 
     if randFile is None and _TRNG_FILENAME is None:
-        LOG.fatal("No entropy source available: Tried all of %s",
+        log.critical("No entropy source available: Tried all of %s",
                   files)
         raise MixFatalError("No entropy source available")
     elif randFile is None:
-        LOG.warn("Falling back to previous entropy source %s",
+        log.warn("Falling back to previous entropy source %s",
                  _TRNG_FILENAME)
     else:
-        LOG.info("Setting entropy source to %r", randFile)
+        log.info("Setting entropy source to %r", randFile)
         _TRNG_FILENAME = randFile
         _theTrueRNG = _TrueRNG(1024)
 

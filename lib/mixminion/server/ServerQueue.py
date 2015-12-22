@@ -6,6 +6,7 @@
    """
 
 import cPickle
+import logging
 import math
 import os
 import operator
@@ -16,7 +17,7 @@ import threading
 
 import mixminion.Filestore
 
-from mixminion.Common import MixError, MixFatalError, secureDelete, LOG, \
+from mixminion.Common import MixError, MixFatalError, secureDelete, \
      createPrivateDir, readPickled, writePickled, formatTime, readFile, \
      ceilDiv
 from mixminion.Crypto import getCommonPRNG
@@ -24,6 +25,9 @@ from mixminion.Filestore import CorruptedFile
 
 __all__ = [ 'DeliveryQueue', 'TimedMixPool', 'CottrellMixPool',
             'BinomialCottrellMixPool', 'PerAddressDeliveryQueue' ]
+
+log = logging.getLogger(__name__)
+
 
 def _calculateNext(lastAttempt, firstAttempt, retrySchedule, canDrop, now):
     """DOCDOC"""
@@ -324,7 +328,7 @@ class DeliveryQueue:
             ds = _DeliveryState(now,None,address)
             ds.setNextAttempt(self.retrySchedule, now)
             handle = self.store.queueObjectAndMetadata(msg, ds)
-            LOG.trace("DeliveryQueue got message %s for %s",
+            log.trace("DeliveryQueue got message %s for %s",
                       handle, self.qname)
         finally:
             self._lock.release()
@@ -361,7 +365,7 @@ class DeliveryQueue:
         self._repOK()
         if now is None:
             now = time.time()
-        LOG.trace("DeliveryQueue checking for deliverable messages in %s",
+        log.trace("DeliveryQueue checking for deliverable messages in %s",
                   self.qname)
         try:
             self._lock.acquire()
@@ -372,13 +376,13 @@ class DeliveryQueue:
                 except CorruptedFile:
                     continue
                 if state.isPending():
-                    #LOG.trace("     [%s] is pending delivery", h)
+                    #log.trace("     [%s] is pending delivery", h)
                     continue
                 elif state.isRemovable():
-                    #LOG.trace("     [%s] is expired", h)
+                    #log.trace("     [%s] is expired", h)
                     self.removeMessage(h)
                 elif state.nextAttempt <= now:
-                    #LOG.trace("     [%s] is ready for delivery", h)
+                    #log.trace("     [%s] is ready for delivery", h)
                     if state is None:
                         addr = None
                     else:
@@ -386,7 +390,7 @@ class DeliveryQueue:
                     messages.append(PendingMessage(h,self,addr))
                     state.setPending(now)
                 else:
-                    #LOG.trace("     [%s] is not yet ready for redelivery", h)
+                    #log.trace("     [%s] is not yet ready for redelivery", h)
                     continue
         finally:
             self._lock.release()
@@ -430,7 +434,7 @@ class DeliveryQueue:
         """
         assert self.retrySchedule is not None
 
-        LOG.trace("DeliveryQueue got successful delivery for %s from %s",
+        log.trace("DeliveryQueue got successful delivery for %s from %s",
                   handle, self.qname)
         self.removeMessage(handle)
 
@@ -440,7 +444,7 @@ class DeliveryQueue:
            invoked after the corresponding message has been
            unsuccessfully delivered."""
         assert self.retrySchedule is not None
-        LOG.trace("DeliveryQueue failed to deliver %s from %s",
+        log.trace("DeliveryQueue failed to deliver %s from %s",
                   handle, self.qname)
         try:
             self._lock.acquire()
@@ -453,15 +457,14 @@ class DeliveryQueue:
 
             if ds is None:
                 # This should never happen
-                LOG.error_exc(sys.exc_info(),
-                              "Handle %s had no state", handle)
+                log.exception("Handle %s had no state", handle)
                 ds = _DeliveryState(now)
                 ds.setNextAttempt(self.retrySchedule, now)
                 self.store.setMetadata(handle, ds)
                 return
 
             if not ds.isPending():
-                LOG.error("Handle %s was not pending", handle)
+                log.error("Handle %s was not pending", handle)
                 return
 
             last = ds.pending
@@ -476,7 +479,7 @@ class DeliveryQueue:
                 if ds.nextAttempt is not None:
                     # There is another scheduled delivery attempt.  Remember
                     # it, mark the message sendable again, and save our state.
-                    LOG.trace("     (We'll try %s again at %s)", handle,
+                    log.trace("     (We'll try %s again at %s)", handle,
                               formatTime(ds.nextAttempt, 1))
 
                     self.store.setMetadata(handle, ds)
@@ -488,7 +491,7 @@ class DeliveryQueue:
             # If we reach this point, the message is undeliverable, either
             # because 'retriable' is false, or because we've run out of
             # retries.
-            LOG.trace("     (Giving up on %s)", handle)
+            log.trace("     (Giving up on %s)", handle)
             self.removeMessage(handle)
         finally:
             self._lock.release()
@@ -676,20 +679,20 @@ class PerAddressDeliveryQueue(DeliveryQueue):
                 except CorruptedFile:
                     continue
                 if state.isPending():
-                    #LOG.trace("     [%s] is pending delivery", h)
+                    #log.trace("     [%s] is pending delivery", h)
                     continue
                 elif state.queuedTime + self.totalLifetime < now:
-                    #LOG.trace("     [%s] is expired", h)
+                    #log.trace("     [%s] is expired", h)
                     self.removeMessage(h)
                     continue
                 addressState = self._getAddressState(state.address, now)
                 if addressState.nextAttempt <= now:
-                    #LOG.trace("     [%s] is ready for next attempt on %s", h,
+                    #log.trace("     [%s] is ready for next attempt on %s", h,
                     #          state.address)
                     messages.append(PendingMessage(h,self,state.address))
                     state.setPending(now)
                 else:
-                    #LOG.trace("     [%s] will wait for next attempt on %s",h,
+                    #log.trace("     [%s] will wait for next attempt on %s",h,
                     #          state.address)
                     continue
         finally:
@@ -708,7 +711,7 @@ class PerAddressDeliveryQueue(DeliveryQueue):
         assert self.retrySchedule is not None
         self._lock.acquire()
         try:
-            LOG.trace("PerAddressDeliveryQueue got successful delivery for %s from %s",
+            log.trace("PerAddressDeliveryQueue got successful delivery for %s from %s",
                       handle, self.qname)
             try:
                 mState = self.store.getMetadata(handle)
@@ -739,18 +742,17 @@ class PerAddressDeliveryQueue(DeliveryQueue):
 
             if mState is None:
                 # This should never happen
-                LOG.error_exc(sys.exc_info(),
-                              "Handle %s had no state; removing", handle)
+                log.exception("Handle %s had no state; removing", handle)
                 self.removeMessage(handle)
                 return
             elif not mState.isPending():
-                LOG.error("Handle %s was not pending", handle)
+                log.error("Handle %s was not pending", handle)
                 return
 
             last = mState.pending
             mState.setNonPending()
             if not retriable:
-                LOG.trace("     (Giving up on %s)", handle)
+                log.trace("     (Giving up on %s)", handle)
                 self.removeMessage(handle)
 
             aState = self._getAddressState(mState.address, now)

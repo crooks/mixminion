@@ -31,6 +31,7 @@ __all__ = [ 'compressData', 'CompressedDataTooLong', 'DROP_TYPE',
             ]
 
 import binascii
+import logging
 import re
 import struct
 import sys
@@ -38,12 +39,16 @@ import types
 import zlib
 from socket import inet_ntoa, inet_aton
 from mixminion.Common import MixError, MixFatalError, encodeBase64, \
-     floorDiv, formatBase64, formatTime, isSMTPMailbox, LOG, armorText, \
+     floorDiv, formatBase64, formatTime, isSMTPMailbox, armorText, \
      unarmorText, isPlausibleHostname
 from mixminion.Crypto import sha1
 
 if sys.version_info[:3] < (2,2,0):
     import mixminion._zlibutil as zlibutil
+
+
+log = logging.getLogger(__name__)
+
 
 # Major and minor number for the understood packet format.
 MAJOR_NO, MINOR_NO = 0,3
@@ -456,7 +461,7 @@ def parseTextReplyBlocks(s):
         for k,v in fields:
             d[k]=v
         if not d.get("Version") == '0.2':
-            LOG.warn("Skipping SURB with bad version: %r", d.get("Version"))
+            log.warn("Skipping SURB with bad version: %r", d.get("Version"))
         blocks.append(parseReplyBlock(value))
     return blocks
 
@@ -907,12 +912,12 @@ def parseMessageAndHeaders(message):
         if m:
             k,v = m.groups()
             if len(v) > MAX_HEADER_LEN:
-                LOG.warn("Rejecting overlong exit header %r:%r...",k,v[:30])
+                log.warn("Rejecting overlong exit header %r:%r...",k,v[:30])
             else:
                 headers[k] = v
             msg = msg[m.end():]
         else:
-            LOG.warn("Could not parse headers on message; not using them.")
+            log.warn("Could not parse headers on message; not using them.")
             return message, headers
 
     raise AssertionError # Unreached; appease pychecker
@@ -1020,7 +1025,7 @@ def _validateZlib():
         _ZLIB_LIBRARY_OK = 1
         return
 
-    LOG.info("Unrecognized zlib version: %r. Spot-checking output", ver)
+    log.info("Unrecognized zlib version: %r. Spot-checking output", ver)
     # This test is inadequate, but it _might_ catch future incompatible
     # changes.
     _ZLIB_LIBRARY_OK = 0.5

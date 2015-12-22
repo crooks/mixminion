@@ -9,6 +9,7 @@
 __all__ = [ 'Address', 'ClientKeyring', 'MixminionClient' ]
 
 import getopt
+import logging
 import os
 import sys
 import time
@@ -22,7 +23,7 @@ import mixminion.Crypto
 import mixminion.Filestore
 import mixminion.MMTPClient
 
-from mixminion.Common import LOG, Lockfile, LockfileLocked, MixError, \
+from mixminion.Common import Lockfile, LockfileLocked, MixError, \
      MixFatalError, MixProtocolBadAuth, MixProtocolError, STATUS, UIError, \
      UsageError, createPrivateDir, englishSequence, floorDiv, formatTime, \
      isPrintingAscii,\
@@ -34,6 +35,10 @@ from mixminion.Packet import encodeMailHeaders, ParseError, parseMBOXInfo, \
      CompressedDataTooLong
 
 from mixminion.ServerInfo import displayServerByRouting, ServerInfo
+
+
+log = logging.getLogger(__name__)
+
 
 #----------------------------------------------------------------------
 # Global variable; holds an instance of Common.Lockfile used to prevent
@@ -49,9 +54,9 @@ def clientLock():
     except LockfileLocked:
         c = _CLIENT_LOCKFILE.getContents()
         if c:
-            LOG.info("Waiting for pid %s", c)
+            log.info("Waiting for pid %s", c)
         else:
-            LOG.info("Waiting for another process")
+            log.info("Waiting for another process")
         _CLIENT_LOCKFILE.acquire(blocking=1, contents=pidStr)
 
 def clientUnlock():
@@ -100,7 +105,7 @@ class ClientKeyring:
         # it's easier to change the filename.
         obsoleteFn = os.path.join(keyDir, "keyring")
         if os.path.exists(obsoleteFn):
-            LOG.warn("Ignoring obsolete keyring stored in %r",obsoleteFn)
+            log.warn("Ignoring obsolete keyring stored in %r",obsoleteFn)
         fn = os.path.join(keyDir, "keyring.txt")
 
         # Setup the keyring.
@@ -119,7 +124,7 @@ class ClientKeyring:
             try:
                 self.keyring.load(create=create,password=password)
             except mixminion.ClientUtils.BadPassword:
-                LOG.error("Incorrect password")
+                log.error("Incorrect password")
                 return None
             if not self.keyring.isLoaded():
                 return None
@@ -134,7 +139,7 @@ class ClientKeyring:
                 return None
             else:
                 # No key, but we're allowed to create a new one.
-                LOG.info("Creating new key for identity %r", name)
+                log.info("Creating new key for identity %r", name)
                 return self.keyring.newSURBKey(name,
                                                time.time()+self.KEY_LIFETIME)
         finally:
@@ -152,14 +157,14 @@ class ClientKeyring:
         try:
             self.keyring.load(create=0,password=password)
         except mixminion.ClientUtils.BadPassword:
-            LOG.error("Incorrect password")
+            log.error("Incorrect password")
         if not self.keyring.isLoaded(): return []
         if self.keyring.isDirty(): self.keyring.save()
         return self.keyring.getAllSURBKeys()
 
 def installDefaultConfig(fname):
     """Create a default, 'fail-safe' configuration in a given file"""
-    LOG.warn("No configuration file found. Installing default file in %s",
+    log.warn("No configuration file found. Installing default file in %s",
                   fname)
 
     fields = { 'ud_default' : mixminion.Config.DEFAULT_USER_DIR }
@@ -374,7 +379,7 @@ class MixminionClient:
             fragmentedMessagePrefix = ""
         else:
             fragmentedMessagePrefix = address.getFragmentedMessagePrefix()
-        LOG.info("Generating payload(s)...")
+        log.info("Generating payload(s)...")
         r = []
         if address.hasPayload():
             payloads = mixminion.BuildMessage.encodeMessage(message, 0,
@@ -436,7 +441,7 @@ class MixminionClient:
                   directory.generatePaths(len(payloads),pathSpec, address,
                                           startAt,endAt)):
                 assert path1 and not path2
-                LOG.info("Generating packet...")
+                log.info("Generating packet...")
                 pkt = mixminion.BuildMessage.buildReplyPacket(
                     payload, path1, surb, self.prng)
 
@@ -496,7 +501,7 @@ class MixminionClient:
 
         try:
             # May raise TimeoutError
-            LOG.info("Connecting...")
+            log.info("Connecting...")
             mixminion.MMTPClient.sendPackets(routingInfo,
                                              pktList,
                                              timeout,
@@ -512,8 +517,8 @@ class MixminionClient:
         clientLock()
         try:
             if nGood:
-                LOG.info("... %s sent", nGood)
-                LOG.trace("Removing %s successful packets from queue", nGood)
+                log.info("... %s sent", nGood)
+                log.trace("Removing %s successful packets from queue", nGood)
             for idx in packetsSentByIndex.keys():
                 if handles and handles[idx]:
                     self.queue.removePacket(handles[idx])
@@ -524,17 +529,17 @@ class MixminionClient:
                     self.queue.cleanQueue()
                 except:
                     e2 = sys.exc_info()
-                    LOG.error("Error while cleaning queue: %s",e2[1])
+                    log.error("Error while cleaning queue: %s",e2[1])
 
             if nBad and noQueue:
                 if warnIfLost:
-                    LOG.error("Error with queueing disabled: %s/%s lost",
+                    log.error("Error with queueing disabled: %s/%s lost",
                               nBad, nGood+nBad)
                 elif alreadyQueued:
-                    LOG.info("Error while delivering packets; %s/%s left in queue",
+                    log.info("Error while delivering packets; %s/%s left in queue",
                              nBad,nGood+nBad)
             elif nBad and lazyQueue:
-                LOG.info("Error while delivering packets; %s/%s left in queue",
+                log.info("Error while delivering packets; %s/%s left in queue",
                          nBad,nGood+nBad)
                 badPackets = [ pktList[idx] for idx in xrange(len(pktList))
                                if not packetsSentByIndex.has_key(idx) ]
@@ -542,12 +547,12 @@ class MixminionClient:
                 self.queuePackets(badPackets, routingInfo)
             elif nBad:
                 assert not (noQueue or lazyQueue)
-                LOG.info("Error while delivering packets; leaving %s/%s in queue",
+                log.info("Error while delivering packets; leaving %s/%s in queue",
                          nBad, nBad+nGood)
             if exc and not nBad:
-                LOG.info("Got error after all packets were delivered.")
+                log.info("Got error after all packets were delivered.")
             if exc:
-                LOG.info("Error was: %s", exc[1])
+                log.info("Error was: %s", exc[1])
         finally:
             clientUnlock()
 
@@ -571,14 +576,14 @@ class MixminionClient:
             def remove(self):
                 self.queue.removePacket(self.h)
 
-        LOG.info("Flushing packet queue")
+        log.info("Flushing packet queue")
         clientLock()
         try:
             if handles is None:
                 handles = self.queue.getHandles()
-                LOG.info("Found %s pending packets", len(handles))
+                log.info("Found %s pending packets", len(handles))
             else:
-                LOG.info("Flushing %s packets", len(handles))
+                log.info("Flushing %s packets", len(handles))
             if maxPackets is not None:
                 handles = mixminion.Crypto.getCommonPRNG().shuffle(handles,
                                                                maxPackets)
@@ -596,22 +601,22 @@ class MixminionClient:
         nPackets = len(packets)
         nSent = 0
         for routing, packets in self._sortPackets(packets):
-            LOG.info("Sending %s packets to %s...",
+            log.info("Sending %s packets to %s...",
                      len(packets), displayServerByRouting(routing))
             try:
                 ok = self.sendPackets(packets, routing, noQueue=1,
                                       warnIfLost=0, alreadyQueued=1)
                 nSent += ok
             except MixError, e:
-                LOG.error("Can't deliver packets to %s: %s; leaving in queue",
+                log.error("Can't deliver packets to %s: %s; leaving in queue",
                           displayServerByRouting(routing), str(e))
 
         if nSent == nPackets:
-            LOG.info("Queue flushed")
+            log.info("Queue flushed")
         elif nSent > 0:
-            LOG.info("Queue partially flushed")
+            log.info("Queue partially flushed")
         elif nSent == 0:
-            LOG.info("No packets delivered")
+            log.info("No packets delivered")
         else:
             raise MixFatalError("BUG: somehow sent %s/%s packets!"
                                 %(nSent,nPackets))
@@ -628,9 +633,9 @@ class MixminionClient:
                        for ri,lst in byRouting ]
             byName.sort()
             if not byName:
-                LOG.info("No packets removed.")
+                log.info("No packets removed.")
             for name, lst in byName:
-                LOG.info("Removing %s packets for %s", len(lst), name)
+                log.info("Removing %s packets for %s", len(lst), name)
                 for h in lst:
                     self.queue.removePacket(h)
             self.queue.cleanQueue()
@@ -643,7 +648,7 @@ class MixminionClient:
            'routing'.
         """
         #XXXX write unit tests
-        LOG.trace("Queueing packets")
+        log.trace("Queueing packets")
         handles = []
         clientLock()
         try:
@@ -653,9 +658,9 @@ class MixminionClient:
         finally:
             clientUnlock()
         if len(pktList) > 1:
-            LOG.info("Packets queued")
+            log.info("Packets queued")
         else:
-            LOG.info("Packet queued")
+            log.info("Packet queued")
         return handles
 
     def decodeMessage(self, s, force=0, isatty=0):
@@ -670,7 +675,7 @@ class MixminionClient:
         foundAFragment = 0
         for msg in parseTextEncodedMessages(s, force=force):
             if msg.isOvercompressed() and not force:
-                LOG.warn("Message is a possible zlib bomb; not uncompressing")
+                log.warn("Message is a possible zlib bomb; not uncompressing")
 
             if not msg.isEncrypted():
                 if msg.isFragment():
@@ -965,13 +970,13 @@ class CLIArgumentParser:
 
         if self.wantClient:
             assert self.wantConfig
-            LOG.debug("Configuring client")
+            log.debug("Configuring client")
             self.client = MixminionClient(self.config, self.password_fileno)
 
         if self.wantClientDirectory:
             assert self.wantConfig
             assert _CLIENT_LOCKFILE
-            LOG.debug("Configuring server list")
+            log.debug("Configuring server list")
             self.directory = mixminion.ClientDirectory.ClientDirectory(
                 config=self.config, diskLock=ClientDiskLock())
             self.directory._installAsKeyIDResolver()
@@ -1271,7 +1276,7 @@ def runClient(cmd, args):
     # XXXX Clean up this ugly control structure.
     if address and inFile == '-' and not address.hasPayload():
         message = None
-        LOG.info("Sending dummy message")
+        log.info("Sending dummy message")
     else:
         if address and not address.hasPayload():
             raise UIError("Cannot send a message in a DROP packet")
@@ -1583,7 +1588,7 @@ def listServers(cmd, args):
             goodOnly = 1
         elif opt == '-R':
             #XXXX009 remove; deprecated since 0.0.7
-            LOG.warn("The -R option is deprecated. Please say -r instead.")
+            log.warn("The -R option is deprecated. Please say -r instead.")
             goodOnly = 1
         elif opt in ('-s', '--separator'):
             separator = val
@@ -1758,7 +1763,7 @@ def clientDecode(cmd, args):
         try:
             s = readFile(inputFile)
         except OSError, e:
-            LOG.error("Could not read file %s: %s", inputFile, e)
+            log.error("Could not read file %s: %s", inputFile, e)
     try:
         res = client.decodeMessage(s, force=force, isatty=tty)
     except ParseError, e:

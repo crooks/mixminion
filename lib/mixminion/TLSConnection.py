@@ -5,11 +5,16 @@
 """
 
 #XXXX implement renegotiate
+import logging
 import sys
 import time
 
 import mixminion._minionlib as _ml
-from mixminion.Common import LOG, stringContains
+from mixminion.Common import stringContains
+
+
+log = logging.getLogger(__name__)
+
 
 # Number of bytes to try reading at once.
 _READLEN = 1024
@@ -162,7 +167,7 @@ class TLSConnection:
            before 'cutoff'.  Returns true iff the connection is timed out.
         """
         if self.lastActivity <= cutoff:
-            LOG.warn("Connection to %s timed out: %.2f seconds without activity",
+            log.warn("Connection to %s timed out: %.2f seconds without activity",
                      self.address, time.time()-self.lastActivity)
             self.onTimeout()
             self.__close()
@@ -224,12 +229,12 @@ class TLSConnection:
         idx = s.find(terminator)
         if idx < 0:
             if len(s) == maxBytes:
-                LOG.warn("Too much data without EOL from %s",self.address)
+                log.warn("Too much data without EOL from %s",self.address)
                 return -1
             else:
                 return None
         if not allowExtra and idx+len(terminator) < self.inbuflen:
-            LOG.warn("Trailing data after EOL from %s",self.address)
+            log.warn("Trailing data after EOL from %s",self.address)
             return -1
 
         return self.getInbuf(idx+len(terminator), clear=clear)
@@ -252,9 +257,9 @@ class TLSConnection:
            connection."""
         if gotClose:
             if self.__stateFn == self.__connectFn:
-                LOG.warn("Couldn't connect to %s",self.address)
+                log.warn("Couldn't connect to %s",self.address)
             else:
-                LOG.warn("Unexpectedly closed connection to %s", self.address)
+                log.warn("Unexpectedly closed connection to %s", self.address)
             self.onTLSError()
         self.sock.close()
         self.sock = None
@@ -288,7 +293,7 @@ class TLSConnection:
                     #XXXX007 respect cap.
                     s = self.tls.read(_READLEN) # might raise TLSWant*
                     if s == 0:
-                        LOG.debug("Read returned 0; shutdown to %s done",
+                        log.debug("Read returned 0; shutdown to %s done",
                                   self.address)
                     else:
                         self.__bytesReadOnShutdown += len(s)
@@ -301,15 +306,15 @@ class TLSConnection:
             if not done and self.__awaitingShutdown:
                 # This should neer actually happen, but let's cover the
                 # possibility.
-                LOG.error("Shutdown returned zero twice from %s--bailing",
+                log.error("Shutdown returned zero twice from %s--bailing",
                           self.address)
                 done = 1
             if done:
-                LOG.debug("Got a completed shutdown from %s", self.address)
+                log.debug("Got a completed shutdown from %s", self.address)
                 self.shutdownFinished()
                 raise _Closing()
             else:
-                LOG.trace("Shutdown returned zero -- entering read mode.")
+                log.trace("Shutdown returned zero -- entering read mode.")
                 self.__awaitingShutdown = 1
                 self.__bytesReadOnShutdown = 0
                 self.wantRead = 1
@@ -325,7 +330,7 @@ class TLSConnection:
     def __readTooMuch(self):
         """Helper function -- called if we read too much data while we're
            shutting down."""
-        LOG.error("Read over 128 bytes of unexpected data from closing "
+        log.error("Read over 128 bytes of unexpected data from closing "
                   "connection to %s", self.address)
         self.onTLSError()
         raise _Closing()
@@ -372,7 +377,7 @@ class TLSConnection:
                 # We wrote some data: remove it from the buffer.
                 assert n >= 0
                 self.__blockedWriteLen = 0
-                LOG.trace("Wrote %s bytes to %s", n, self.address)
+                log.trace("Wrote %s bytes to %s", n, self.address)
                 if n == len(self.outbuf[0]):
                     del self.outbuf[0]
                 else:
@@ -399,13 +404,13 @@ class TLSConnection:
                 if s == 0:
                     # The other side sent us a shutdown; we'll shutdown too.
                     self.receivedShutdown()
-                    LOG.trace("read returned 0: shutting down connection to %s"
+                    log.trace("read returned 0: shutting down connection to %s"
                               , self.address)
                     self.startShutdown()
                     break
                 else:
                     # We got some data; add it to the inbuf.
-                    LOG.trace("Read got %s bytes from %s",len(s), self.address)
+                    log.trace("Read got %s bytes from %s",len(s), self.address)
                     self.inbuf.append(s)
                     self.inbuflen += len(s)
                     cap -= len(s)
@@ -477,12 +482,12 @@ class TLSConnection:
                 e = str(e)
                 if stringContains(e, 'wrong version number'):
                     e = 'wrong version number (or failed handshake)'
-                LOG.warn("Unexpected TLS error: %s.  Closing connection to %s",
+                log.warn("Unexpected TLS error: %s.  Closing connection to %s",
                          e, self.address)
                 self.onTLSError()
                 self.startShutdown()
             else:
-                LOG.warn("Error while shutting down: closing connection to %s",
+                log.warn("Error while shutting down: closing connection to %s",
                          self.address)
                 self.onTLSError()
                 self.__close()

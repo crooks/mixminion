@@ -28,7 +28,12 @@ __all__ = [ "MixError", "ClientEnv", "Mix", "PathSpec", "Path",
 import mixminion.Config
 import mixminion.ClientUtils
 import mixminion.ClientDirectory
+import logging
 import os
+
+
+log = logging.getLogger(__name__)
+
 
 # The operations in this file raise 'MixError' on failure.
 from mixminion.Common import MixError
@@ -140,7 +145,7 @@ class ClientEnv:
             location = os.path.expanduser(location)
 
         if not os.path.exists(location):
-            LOG.warn("Writing default configuration file to %r",location)
+            log.warn("Writing default configuration file to %r",location)
             #XXXX?
             mixminion.ClientMain.installDefaultConfig(location)
 

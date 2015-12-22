@@ -125,7 +125,7 @@ class ServerList:
             fname = os.path.join(self.serverIDDir, fn)
             tp,val = readPickled(fname)
             if tp != "V0":
-                LOG.warn("Weird file version %s on %s",tp,fname)
+                log.warn("Weird file version %s on %s",tp,fname)
                 continue
             nickname, ident = val
             ID = mixminion.Crypto.sha1(ident)
@@ -140,11 +140,11 @@ class ServerList:
             nickname = server.getNickname()
             try:
                 if self.idCache.containsServer(server):
-                    LOG.warn("Server %s already known", nickname)
+                    log.warn("Server %s already known", nickname)
             except mixminion.directory.MismatchedID:
                 raise MixFatalError("Mismatched ID for server %s" % nickname)
 
-            LOG.info("Learning identity for new server %s", nickname)
+            log.info("Learning identity for new server %s", nickname)
             self.idCache.insertServer(server)
             writePickled(os.path.join(self.serverIDDir,
                                       nickname+"-"+formatFnameTime()),
@@ -212,18 +212,18 @@ class ServerList:
         """Forcibly remove all servers named <nickname>"""
         try:
             self._lock()
-            LOG.info("Removing all servers named %s", nickname)
+            log.info("Removing all servers named %s", nickname)
             lcnickname = nickname.lower()
             if not self.serversByNickname.has_key(lcnickname):
-                LOG.info("  (No such servers exist)")
+                log.info("  (No such servers exist)")
                 return
             servers = self.serversByNickname[lcnickname]
             for fn in servers:
-                LOG.info("  Removing %s", fn)
+                log.info("  Removing %s", fn)
                 _moveServer(self.serverDir, self.archiveDir, fn)
                 del self.servers[fn]
             del self.serversByNickname[lcnickname]
-            LOG.info("  (%s servers removed)", len(servers))
+            log.info("  (%s servers removed)", len(servers))
         finally:
             self._unlock()
 
@@ -394,7 +394,7 @@ class ServerList:
 
             # Now, do the actual removing.
             for fn, why in removed.items():
-                LOG.info("Removing %s descriptor %s", why, fn)
+                log.info("Removing %s descriptor %s", why, fn)
                 _moveServer(self.serverDir, self.archiveDir, fn)
                 del self.servers[fn]
 
@@ -413,9 +413,9 @@ class ServerList:
                 try:
                     self.servers[filename] = ServerInfo(fname=path)
                 except ConfigError, e:
-                    LOG.warn("Somehow, a bad server named %s got in our store",
+                    log.warn("Somehow, a bad server named %s got in our store",
                              filename)
-                    LOG.warn(" (Error was: %s)", str(e))
+                    log.warn(" (Error was: %s)", str(e))
                     _moveServer(self.serverDir, self.rejectDir, filename)
 
             # Next, rebuild self.serverIDs:
@@ -424,13 +424,13 @@ class ServerList:
                 path = os.path.join(self.serverIDDir, filename)
                 t = readPickled(path)
                 if t[0] != 'V0':
-                    LOG.warn("Skipping confusing stored key in file %s",
+                    log.warn("Skipping confusing stored key in file %s",
                              filename)
                     continue
                 nickname, key = t[1]
                 key = pk_decode_public_key(key)
                 if self.serverIDs.has_key(nickname.lower()):
-                    LOG.warn("Eeek! Multiple entries for %s", nickname)
+                    log.warn("Eeek! Multiple entries for %s", nickname)
                     if not pk_same_public_key(self.serverIDs[nickname.lower()],
                                               key):
                         raise MixFatalError(

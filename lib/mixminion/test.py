@@ -5357,6 +5357,7 @@ class DirectoryServerTests(TestCase):
             vd1)
 
     def testVoteFile(self):
+        # TODO There is no Votefile
         VF = mixminion.directory.Directory.VoteFile
         d = mix_mktemp()
         fn = os.path.join(d, "votes")

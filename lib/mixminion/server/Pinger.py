@@ -26,6 +26,7 @@ import binascii
 import bisect
 import calendar
 import cPickle
+import logging
 import os
 import struct
 import sys
@@ -41,9 +42,11 @@ import mixminion.server.PacketHandler
 import mixminion.server.MMTPServer
 
 from mixminion.Common import MixError, AtomicFile, ceilDiv, createPrivateDir, \
-     floorDiv, formatBase64, formatFnameDate, formatTime, IntervalSet, LOG, \
+     floorDiv, formatBase64, formatFnameDate, formatTime, IntervalSet, \
      parseFnameDate, previousMidnight, readPickled, secureDelete, \
      succeedingMidnight, UIError, writePickled
+
+log = logging.getLogger(__name__)
 
 try:
     import sqlite3
@@ -660,9 +663,9 @@ class PingLog:
         self._db.getCursor().execute(self._GOT_PING, (self._db.time(now), formatBase64(hash)))
         n = self._db.getCursor().rowcount
         if n == 0:
-            LOG.warn("Received ping with no record of its hash")
+            log.warn("Received ping with no record of its hash")
         elif n > 1:
-            LOG.warn("Received ping with multiple hash entries!")
+            log.warn("Received ping with multiple hash entries!")
 
     def _calculateUptimes(self, serverIdentities, startTime, endTime, now=None):
         """Helper: calculate the uptime results for a set of servers, named in
@@ -832,7 +835,7 @@ class PingLog:
         del dailyLatencies
         allLatencies.sort()
         #if allLatencies:
-        #    LOG.warn("%s pings in %s intervals. Median latency is %s seconds",
+        #    log.warn("%s pings in %s intervals. Median latency is %s seconds",
         #             nPings, nPeriods,
         #             allLatencies[floorDiv(len(allLatencies),2)])
 
@@ -853,7 +856,7 @@ class PingLog:
             else:
                 mod_age = (now-sent-15*60)*0.8
                 w = bisect.bisect_left(allLatencies, mod_age)/float(nPings)
-                #LOG.warn("Percentile is %s.", w)
+                #log.warn("Percentile is %s.", w)
 
             perTotalWeights[pIdx] += w
             if received:
@@ -873,7 +876,7 @@ class PingLog:
             else:
                 rel = 0.0
             #if sent:
-            #    LOG.warn("Of pings sent on day %s, %s/%s were received. "
+            #    log.warn("Of pings sent on day %s, %s/%s were received. "
             #             "rel=%s/%s=%s",
             #             pIdx, rcvd, sent, wrcvd, wsent, rel)
             self._setOneHop(
@@ -968,12 +971,12 @@ class PingLog:
         if 0:
             if isInteresting:
                 if nSent < 3 and nReceived == 0:
-                    LOG.trace("%s,%s is interesting because %d were sent and %d were received",
+                    log.trace("%s,%s is interesting because %d were sent and %d were received",
                               s1,s2, nSent, nReceived)
                 elif nExpected and nReceived <= nExpected*0.3:
-                    LOG.trace("%s,%s is interesting because we expected %s and got %s", s1, s2, nExpected, nReceived)
+                    log.trace("%s,%s is interesting because we expected %s and got %s", s1, s2, nExpected, nReceived)
                 else:
-                    LOG.trace("I have no idea why %s,%s is interesting.",s1,s2)
+                    log.trace("I have no idea why %s,%s is interesting.",s1,s2)
 
         return nSent, nReceived, isBroken, isInteresting
 
@@ -1114,19 +1117,19 @@ class PingLog:
            database.
         """
         if now is None: now=time.time()
-        LOG.info("Computing ping results.")
-        LOG.info("Starting to compute server uptimes.")
+        log.info("Computing ping results.")
+        log.info("Starting to compute server uptimes.")
         self.calculateUptimes(now-24*60*60*12, now)
-        LOG.info("Starting to compute one-hop ping results")
+        log.info("Starting to compute one-hop ping results")
         self.calculateOneHopResult(now)
-        LOG.info("Starting to compute two-hop chain status")
+        log.info("Starting to compute two-hop chain status")
         self.calculateChainStatus(now)
         if outFname:
-            LOG.info("Writing ping results to disk")
+            log.info("Writing ping results to disk")
             f = AtomicFile(outFname, 'w')
             self.dumpAllStatus(f, now-24*60*60*12, now)
             f.close()
-        LOG.info("Done computing ping results")
+        log.info("Done computing ping results")
         self.lastCalculation = now
 
 class PingGenerator:
@@ -1192,11 +1195,11 @@ class PingGenerator:
         assert (path2[-1].getIdentityDigest() ==
                 self.keyring.getIdentityKeyDigest())
         try:
-            LOG.debug("Pinger checking path %s",",".join([s.getNickname() for s in (path1+path2[:-1])]))
+            log.debug("Pinger checking path %s",",".join([s.getNickname() for s in (path1+path2[:-1])]))
             p1 = self.directory.getPath(path1)
             p2 = self.directory.getPath(path2)
         except UIError, e:
-            LOG.info("Not sending scheduled ping: %s",e)
+            log.info("Not sending scheduled ping: %s",e)
             return 0
         verbose_path = ",".join([s.getNickname() for s in (p1+p2[:-1])])
         identity_list = [ s.getIdentityDigest() for s in p1+p2[:-1] ]
@@ -1207,7 +1210,7 @@ class PingGenerator:
             path1=p1, path2=p2, suppressTag=1)
         addr = p1[0].getMMTPHostInfo()
         obj = mixminion.server.PacketHandler.RelayedPacket(addr, packet)
-        LOG.debug("Pinger queueing ping along path %s [%s]",verbose_path,
+        log.debug("Pinger queueing ping along path %s [%s]",verbose_path,
                   formatBase64(payloadHash))
         self.pingLog.queuedPing(payloadHash, identity_list)
         self.outgoingQueue.queueDeliveryMessage(obj, addr)
@@ -1274,10 +1277,10 @@ class _PingScheduler:
         oldTime = self.nextPingTime.get(path, None)
         self.nextPingTime[path] = t
         if oldTime != t:
-            LOG.trace("Scheduling %d-hop ping for %s at %s", len(path),
+            log.trace("Scheduling %d-hop ping for %s at %s", len(path),
                       ",".join([binascii.b2a_hex(p) for p in path]),
                       formatTime(t,1))
-            #LOG.trace("(Period starts at %s; period is %s days; interval is %s sec; perturbation is %s sec)",
+            #log.trace("(Period starts at %s; period is %s days; interval is %s sec; perturbation is %s sec)",
             #          formatTime(periodStart,1), self._period_length/ONE_DAY, interval, perturbation)
         return t
     def _getPerturbation(self, path, periodStart, interval):
@@ -1319,7 +1322,7 @@ class OneHopPingGenerator(_PingScheduler,PingGenerator):
             identities[s.getIdentityDigest()]=1
         for (i,) in self.nextPingTime.keys():
             if not identities.has_key(i):
-                LOG.trace("Unscheduling 1-hop ping for %s",
+                log.trace("Unscheduling 1-hop ping for %s",
                           binascii.b2a_hex(i))
                 del self.nextPingTime[(i,)]
         for i in identities.keys():
@@ -1381,7 +1384,7 @@ class TwoHopPingGenerator(_PingScheduler, PingGenerator):
             identities[s.getIdentityDigest()]=1
         for id1,id2 in self.nextPingTime.keys():
             if not (identities.has_key(id1) and identities.has_key(id2)):
-                LOG.trace("Unscheduling 2-hop ping for %s,%s",
+                log.trace("Unscheduling 2-hop ping for %s,%s",
                           binascii.b2a_hex(id1),binascii.b2a_hex(id2))
                 del self.nextPingTime[(id1,id2)]
         for id1 in identities.keys():
@@ -1391,10 +1394,10 @@ class TwoHopPingGenerator(_PingScheduler, PingGenerator):
     def _getPingInterval(self, path):
         p = ",".join([self.pingLog._db.encodeIdentity(i) for i in path])
         if self.pingLog._interestingChains.get(p, 0):
-            #LOG.trace("While scheduling, I decided that %s was interesting",p)
+            #log.trace("While scheduling, I decided that %s was interesting",p)
             return self._interesting_interval
         else:
-            #LOG.trace("While scheduling, I decided that %s was dull",p)
+            #log.trace("While scheduling, I decided that %s was dull",p)
             return self._dull_interval
 
     def sendPings(self, now=None):
@@ -1409,7 +1412,7 @@ class TwoHopPingGenerator(_PingScheduler, PingGenerator):
                 when = self.nextPingTime.get((id1,id2))
                 if when is None:
                     # No ping scheduled; server must be new to directory.
-                    LOG.debug("No ping scheduled; server must be new to directory.")
+                    log.debug("No ping scheduled; server must be new to directory.")
                     self._schedulePing((id1,id2),now)
                     continue
                 elif when > now: # Not yet.
@@ -1448,7 +1451,7 @@ class TestLinkPaddingGenerator(PingGenerator):
         for addr in addressSet.keys():
             if not pkts.get(addr,None):
                 if prng.getFloat() < self.prob:
-                    LOG.debug("Pinger adding link-padding to test %s",
+                    log.debug("Pinger adding link-padding to test %s",
                             mixminion.ServerInfo.displayServerByRouting(addr))
                     needPadding.append(addr)
         for addr in needPadding:

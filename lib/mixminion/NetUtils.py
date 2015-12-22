@@ -8,6 +8,7 @@
 __all__ = [ ]
 
 import errno
+import logging
 import re
 import select
 import signal
@@ -15,8 +16,12 @@ import socket
 import string
 import sys
 import time
-from mixminion.Common import LOG, TimeoutError, _ALLCHARS
+from mixminion.Common import TimeoutError, _ALLCHARS
 import mixminion._minionlib
+
+
+log = logging.getLogger(__name__)
+
 
 #======================================================================
 # Global vars
@@ -91,7 +96,7 @@ def getIP(name, preferIP4=PREFER_INET4):
         inet4 = [ addr for addr in r if addr[0] == AF_INET ]
         inet6 = [ addr for addr in r if addr[0] == AF_INET6 ]
         if not (inet4 or inet6):
-            LOG.warn("getIP returned no inet addresses for %r",name)
+            log.warn("getIP returned no inet addresses for %r",name)
             return ("NOENT", "No inet addresses returned", time.time())
         if inet6 and not inet4 and not haveIP6:
             return ("NOENT",
@@ -108,11 +113,11 @@ def getIP(name, preferIP4=PREFER_INET4):
         assert res[0] in (AF_INET, AF_INET6)
         assert nameIsStaticIP(res[1])
         protoname = (res[0] == AF_INET) and "inet" or "inet6"
-        LOG.trace("Result for getIP(%r): %s:%s (%d others dropped)",
+        log.trace("Result for getIP(%r): %s:%s (%d others dropped)",
                   name,protoname,res[1],len(r)-1)
         return res
     except socket.error, e:
-        LOG.trace("Result for getIP(%r): error:%r",name,e)
+        log.trace("Result for getIP(%r): error:%r",name,e)
         if len(e.args) == 2:
             return ("NOENT", str(e[1]), time.time())
         else:

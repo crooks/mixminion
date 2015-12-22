@@ -9,8 +9,9 @@
 __all__ = [ "ServerKeyring", "generateServerDescriptorAndKeys",
             "generateCertChain" ]
 
-import os
 import errno
+import logging
+import os
 import socket
 import re
 import ssl
@@ -30,11 +31,15 @@ import mixminion.server.ServerMain
 
 from mixminion.ServerInfo import ServerInfo, PACKET_KEY_BYTES, MMTP_KEY_BYTES,\
      signServerInfo
-from mixminion.Common import AtomicFile, LOG, MixError, MixFatalError, \
+from mixminion.Common import AtomicFile, MixError, MixFatalError, \
      ceilDiv, createPrivateDir, checkPrivateFile, englishSequence, \
      formatBase64, formatDate, formatTime, previousMidnight, readFile, \
      replaceFile, secureDelete, tryUnlink, UIError, writeFile
 from mixminion.Config import ConfigError
+
+
+log = logging.getLogger(__name__)
+
 
 #----------------------------------------------------------------------
 
@@ -119,10 +124,10 @@ class ServerKeyring:
         firstKey = sys.maxint
         lastKey = 0
 
-        LOG.debug("Scanning server keystore at %s", self.keyDir)
+        log.debug("Scanning server keystore at %s", self.keyDir)
 
         if not os.path.exists(self.keyDir):
-            LOG.info("Creating server keystore at %s", self.keyDir)
+            log.info("Creating server keystore at %s", self.keyDir)
             createPrivateDir(self.keyDir)
 
         # Iterate over the entires in HOME/keys
@@ -131,7 +136,7 @@ class ServerKeyring:
             if not os.path.isdir(os.path.join(self.keyDir,dirname)):
                 continue
             if not dirname.startswith('key_'):
-                LOG.warn("Unexpected directory %s under %s",
+                log.warn("Unexpected directory %s under %s",
                               dirname, self.keyDir)
                 continue
             keysetname = dirname[4:]
@@ -141,7 +146,7 @@ class ServerKeyring:
                 if setNum < firstKey: firstKey = setNum
                 if setNum > lastKey: lastKey = setNum
             except ValueError:
-                LOG.warn("Unexpected directory %s under %s",
+                log.warn("Unexpected directory %s under %s",
                               dirname, self.keyDir)
                 continue
 
@@ -151,7 +156,7 @@ class ServerKeyring:
             try:
                 keyset.checkKeys()
             except MixError, e:
-                LOG.warn("Error checking private keys in keyset %s: %s",
+                log.warn("Error checking private keys in keyset %s: %s",
                          keysetname, str(e))
                 ok = 0
 
@@ -159,7 +164,7 @@ class ServerKeyring:
                 if ok:
                     keyset.getServerDescriptor()
             except (ConfigError, IOError), e:
-                LOG.warn("Key set %s has invalid/missing descriptor: %s",
+                log.warn("Key set %s has invalid/missing descriptor: %s",
                          keysetname, str(e))
                 ok = 0
 
@@ -167,16 +172,16 @@ class ServerKeyring:
                 t1, t2 = keyset.getLiveness()
                 self.keySets.append( (t1, t2, keyset) )
 
-                LOG.trace("Found key %s (valid from %s to %s)",
+                log.trace("Found key %s (valid from %s to %s)",
                           dirname, formatDate(t1), formatDate(t2))
             else:
                 badKeySets.append(keyset)
 
-        LOG.debug("Found %s keysets: %s were incomplete or invalid.",
+        log.debug("Found %s keysets: %s were incomplete or invalid.",
                   len(self.keySets), len(badKeySets))
 
         if badKeySets:
-            LOG.warn("Removing %s invalid keysets", len(badKeySets))
+            log.warn("Removing %s invalid keysets", len(badKeySets))
         for b in badKeySets:
             b.delete()
 
@@ -190,10 +195,10 @@ class ServerKeyring:
             end = self.keySets[idx][1]
             start = self.keySets[idx+1][0]
             if start < end:
-                LOG.warn("Multiple keys for %s.  That's unsupported.",
+                log.warn("Multiple keys for %s.  That's unsupported.",
                               formatDate(end))
             elif start > end:
-                LOG.warn("Gap in key schedule: no key from %s to %s",
+                log.warn("Gap in key schedule: no key from %s to %s",
                               formatDate(end), formatDate(start))
 
     def checkDescriptorConsistency(self, regen=1):
@@ -211,12 +216,12 @@ class ServerKeyring:
         if not state:
             return
 
-        LOG.warn("Some generated keysets do not match "
+        log.warn("Some generated keysets do not match "
                   "current configuration...")
 
         for ok, ks in state:
             va,vu = ks.getLiveness()
-            LOG.warn("Keyset %s (%s--%s):",ks.keyname,formatTime(va,1),
+            log.warn("Keyset %s (%s--%s):",ks.keyname,formatTime(va,1),
                      formatTime(vu,1))
             ks.checkConsistency(self.config, 1)
             if regen and ok == 'bad':
@@ -234,14 +239,14 @@ class ServerKeyring:
             key = mixminion.Crypto.pk_PEM_load(fn, password)
             keylen = key.get_modulus_bytes()*8
             if keylen != bits:
-                LOG.warn(
+                log.warn(
                     "Stored identity key has %s bits, but you asked for %s.",
                     keylen, bits)
         else:
-            LOG.info("Generating identity key. (This may take a while.)")
+            log.info("Generating identity key. (This may take a while.)")
             key = mixminion.Crypto.pk_generate(bits)
             mixminion.Crypto.pk_PEM_save(key, fn, password)
-            LOG.info("Generated %s-bit identity key.", bits)
+            log.info("Generated %s-bit identity key.", bits)
 
         return key
 
@@ -274,44 +279,44 @@ class ServerKeyring:
            all descriptors are sent."""
         keySets = [ ks for _, _, ks in self.keySets ]
         if allKeys:
-            LOG.info("Republishing all known keys to directory server")
+            log.info("Republishing all known keys to directory server")
         else:
             keySets = [ ks for ks in keySets if not ks.isPublished() ]
             if not keySets:
-                LOG.trace("publishKeys: no unpublished keys found")
+                log.trace("publishKeys: no unpublished keys found")
                 return
-            LOG.info("Publishing %s keys to directory server...",len(keySets))
+            log.info("Publishing %s keys to directory server...",len(keySets))
 
         rejected = 0
         for ks in keySets:
             status = ks.publish(DIRECTORY_UPLOAD_URL)
             if status == 'error':
-                LOG.error("Error publishing a key; giving up")
+                log.error("Error publishing a key; giving up")
                 return 0
             elif status == 'reject':
                 rejected += 1
             else:
                 assert status == 'accept'
         if rejected == 0:
-            LOG.info("All keys published successfully.")
+            log.info("All keys published successfully.")
             return 1
         else:
-            LOG.info("%s/%s keys were rejected." , rejected, len(keySets))
+            log.info("%s/%s keys were rejected." , rejected, len(keySets))
             return 0
 
     def removeIdentityKey(self):
         """Remove this server's identity key."""
         fn = os.path.join(self.keyDir, "identity.key")
         if not os.path.exists(fn):
-            LOG.info("No identity key to remove.")
+            log.info("No identity key to remove.")
         else:
-            LOG.warn("Removing identity key in 10 seconds")
+            log.warn("Removing identity key in 10 seconds")
             time.sleep(10)
-            LOG.warn("Removing identity key")
+            log.warn("Removing identity key")
             secureDelete([fn], blocking=1)
 
         if os.path.exists(self.dhFile):
-            LOG.info("Removing diffie-helman parameters file")
+            log.info("Removing diffie-helman parameters file")
             secureDelete([self.dhFile], blocking=1)
 
     def createKeysAsNeeded(self,now=None):
@@ -336,7 +341,7 @@ class ServerKeyring:
         lifetime = self.config['Server']['PublicKeyLifetime'].getSeconds()
         nKeys = int(ceilDiv(timeToCover, lifetime))
 
-        LOG.info("Creating %s keys", nKeys)
+        log.info("Creating %s keys", nKeys)
         self.createKeys(num=nKeys)
 
     def createKeys(self, num=1, startAt=None):
@@ -374,7 +379,7 @@ class ServerKeyring:
             lifetime = self.config['Server']['PublicKeyLifetime'].getSeconds()
             nextStart = startAt + lifetime
 
-            LOG.info("Generating key %s to run from %s through %s (GMT)",
+            log.info("Generating key %s to run from %s through %s (GMT)",
                      keyname, formatDate(startAt),
                      formatDate(nextStart-3600))
             generateServerDescriptorAndKeys(config=self.config,
@@ -390,7 +395,7 @@ class ServerKeyring:
     def regenerateDescriptors(self):
         """Regenerate all server descriptors for all keysets in this
            keyring, but keep all old keys intact."""
-        LOG.info("Regenerating server descriptors; keeping old keys.")
+        log.info("Regenerating server descriptors; keeping old keys.")
         identityKey = self.getIdentityKey()
         for _,_,ks in self.keySets:
             ks.regenerateServerDescriptor(self.config, identityKey)
@@ -410,7 +415,7 @@ class ServerKeyring:
         # directory.
         nextKeygen = lastExpiry - PUBLICATION_LATENCY - PREPUBLICATION_INTERVAL
 
-        LOG.info("Last expiry at %s; next keygen at %s",
+        log.info("Last expiry at %s; next keygen at %s",
                  formatTime(lastExpiry,1), formatTime(nextKeygen, 1))
         return nextKeygen
 
@@ -419,7 +424,7 @@ class ServerKeyring:
         self.checkKeys()
         keys = self.getDeadKeys(now)
         for message, keyset in keys:
-            LOG.info(message)
+            log.info(message)
             keyset.delete()
         self.checkKeys()
 
@@ -482,11 +487,11 @@ class ServerKeyring:
         if not os.path.exists(self.dhFile):
             # ???? This is only using 512-bit Diffie-Hellman!  That isn't
             # ???? remotely enough.
-            LOG.info("Generating Diffie-Helman parameters for TLS...")
+            log.info("Generating Diffie-Helman parameters for TLS...")
             mixminion._minionlib.generate_dh_parameters(self.dhFile, verbose=0)
-            LOG.info("...done")
+            log.info("...done")
         else:
-            LOG.debug("Using existing Diffie-Helman parameter from %s",
+            log.debug("Using existing Diffie-Helman parameter from %s",
                            self.dhFile)
 
         return self.dhFile
@@ -539,7 +544,7 @@ class ServerKeyring:
         self.currentKeys = keys = self.getServerKeysets(when)
         keyNames = [k.keyname for k in keys]
         deadKeyNames = [k.keyname for msg, k in deadKeys]
-        LOG.info("Updating keys: %s currently valid (%s); %s expired (%s)",
+        log.info("Updating keys: %s currently valid (%s); %s expired (%s)",
                  len(keys), " ".join(keyNames),
                  len(deadKeys), " ".join(deadKeyNames))
         if packetHandler is not None:
@@ -557,7 +562,7 @@ class ServerKeyring:
                     0644)
 
         for msg, ks in deadKeys:
-            LOG.info(msg)
+            log.info(msg)
             ks.delete()
 
         if deadKeys:
@@ -591,17 +596,17 @@ class ServerKeyring:
             # Which even happens first?
             events.sort()
             if not events:
-                LOG.info("No future key rotation events.")
+                log.info("No future key rotation events.")
                 self.nextUpdate = sys.maxint
                 return self.nextUpdate
 
             self.nextUpdate, eventType = events[0]
             if eventType == "RM":
-                LOG.info("Next key event: old key is removed at %s",
+                log.info("Next key event: old key is removed at %s",
                          formatTime(self.nextUpdate,1))
             else:
                 assert eventType == "ADD"
-                LOG.info("Next key event: new key becomes valid at %s",
+                log.info("Next key event: new key becomes valid at %s",
                          formatTime(self.nextUpdate,1))
 
         return self.nextUpdate
@@ -618,7 +623,7 @@ class ServerKeyring:
                 if va <= now <= vu:
                     return k.getServerDescriptor()
 
-            LOG.warn("getCurrentDescriptor: no live keysets??")
+            log.warn("getCurrentDescriptor: no live keysets??")
             return self.getServerKeysets()[-1].getServerDescriptor()
         finally:
             self._lock.release()
@@ -751,7 +756,7 @@ class ServerKeyset:
         self.load()
         self.markAsUnpublished()
         validAt,validUntil = self.getLiveness()
-        LOG.info("Regenerating descriptor for keyset %s (%s--%s)",
+        log.info("Regenerating descriptor for keyset %s (%s--%s)",
                  self.keyname, formatTime(validAt,1),
                  formatTime(validUntil,1))
         generateServerDescriptorAndKeys(config, identityKey,
@@ -808,32 +813,31 @@ class ServerKeyset:
                 info = f.info()
                 reply = f.read()
             except IOError, e:
-                LOG.error("Error while publishing server descriptor: %s",e)
+                log.error("Error while publishing server descriptor: %s",e)
                 return 'error'
             except:
-                LOG.error_exc(sys.exc_info(),
-                              "Error publishing server descriptor")
+                log.exception("Error publishing server descriptor")
                 return 'error'
         finally:
             if f is not None:
                 f.close()
 
         if info.get('Content-Type') != 'text/plain':
-            LOG.error("Bad content type %s from directory"%info.get(
+            log.error("Bad content type %s from directory"%info.get(
                 'Content-Type'))
             return 'error'
         m = DIRECTORY_RESPONSE_RE.search(reply)
         if not m:
-            LOG.error("Didn't understand reply from directory: %s",
+            log.error("Didn't understand reply from directory: %s",
                       reply)
             return 'error'
         ok = int(m.group(1))
         msg = m.group(2)
         if not ok:
-            LOG.error("Directory rejected descriptor: %r", msg)
+            log.error("Directory rejected descriptor: %r", msg)
             return 'reject'
 
-        LOG.info("Directory accepted descriptor: %r", msg)
+        log.info("Directory accepted descriptor: %r", msg)
         self.markAsPublished()
         return 'accept'
 
@@ -844,7 +848,7 @@ DIRECTORY_RESPONSE_RE = re.compile(r'^Status: (0|1)[ \t]*\nMessage: (.*)$',
 class _WarnWrapper:
     """Helper for 'checkDescriptorConsistency' to keep its implementation
        short.  Counts the number of times it's invoked, and delegates to
-       LOG.warn if silence is false."""
+       log.warn if silence is false."""
     def __init__(self, silence, isPublished):
         self.silence = silence
         self.errors = 0
@@ -857,7 +861,7 @@ class _WarnWrapper:
             args = list(args)
             args[0] = args[0].replace("published", "in unpublished descriptor")
         if not self.silence:
-            LOG.warn(*args)
+            log.warn(*args)
 
 def checkDescriptorConsistency(info, config, log=1, isPublished=1):
     """Given a ServerInfo and a ServerConfig, compare them for consistency.
@@ -1077,24 +1081,24 @@ def generateServerDescriptorAndKeys(config, identityKey, keydir, keyname,
     if fields['IP'] == '0.0.0.0': #XXXX008 remove; not needed since 005.
         try:
             fields['IP'] = _guessLocalIP()
-            LOG.warn("No IP configured; guessing %s",fields['IP'])
+            log.warn("No IP configured; guessing %s",fields['IP'])
         except IPGuessError, e:
-            LOG.error("Can't guess IP: %s", str(e))
+            log.error("Can't guess IP: %s", str(e))
             raise UIError("Can't guess IP: %s" % str(e))
     # If we don't know our Hostname, try to guess
     if fields['Hostname'] is None:
         fields['Hostname'] = socket.getfqdn()
-        LOG.warn("No Hostname configured; guessing %s",fields['Hostname'])
+        log.warn("No Hostname configured; guessing %s",fields['Hostname'])
     try:
         _checkHostnameIsLocal(fields['Hostname'])
         dnsResults = mixminion.NetUtils.getIPs(fields['Hostname'])
     except socket.error, e:
-        LOG.warn("Can't resolve configured hostname %r: %s",
+        log.warn("Can't resolve configured hostname %r: %s",
                  fields['Hostname'],str(e))
     else:
         found = [ ip for _,ip,_ in dnsResults ]
         if fields['IP'] not in found:
-            LOG.warn("Configured hostname %r resolves to %s, but we're publishing the IP %s",
+            log.warn("Configured hostname %r resolves to %s, but we're publishing the IP %s",
                      fields['Hostname'], englishSequence(found), fields['IP'])
 
     # Fill in a stock server descriptor.  Note the empty Digest: and
@@ -1279,11 +1283,11 @@ def _checkHostnameIsLocal(name):
     for family, addr, _ in r:
         if family == mixminion.NetUtils.AF_INET:
             if addr.startswith("127.") or addr.startswith("0."):
-                LOG.warn("Hostname %r resolves to reserved address %s",
+                log.warn("Hostname %r resolves to reserved address %s",
                          name, addr)
         else:
             if addr in ("::", "::1"):
-                LOG.warn("Hostname %r resolves to reserved address %s",
+                log.warn("Hostname %r resolves to reserved address %s",
                          name,addr)
     _KNOWN_LOCAL_HOSTNAMES[name] = 1
 

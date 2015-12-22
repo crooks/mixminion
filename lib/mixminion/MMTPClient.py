@@ -14,6 +14,7 @@
 
 __all__ = [ "MMTPClientConnection", "sendPackets", "DeliverableMessage" ]
 
+import logging
 import socket
 import sys
 import time
@@ -23,16 +24,20 @@ import mixminion.ServerInfo
 import mixminion.TLSConnection
 from mixminion.Crypto import sha1, getCommonPRNG
 from mixminion.Common import MixProtocolError, MixProtocolReject, \
-     MixProtocolBadAuth, LOG, MixError, formatBase64, stringContains, \
+     MixProtocolBadAuth, MixError, formatBase64, stringContains, \
      TimeoutError
 from mixminion.Packet import IPV4Info, MMTPHostInfo
+
+
+log = logging.getLogger(__name__)
+
 
 def _noop(*k,**v): pass
 class EventStatsDummy:
     def __getattr__(self,a):
         return _noop
 EventStats = EventStatsDummy()
-EventStats.log = EventStats
+EventStats.elog = EventStats
 
 def useEventStats():
     import mixminion.server.EventStats
@@ -129,8 +134,8 @@ class MMTPClientConnection(mixminion.TLSConnection.TLSConnection):
         self._isConnected = 0
         self._isFailed = 0
         self._isAlive = 1
-        EventStats.log.attemptedConnect()
-        LOG.debug("Opening client connection to %s",self.address)
+        EventStats.elog.attemptedConnect()
+        log.debug("Opening client connection to %s",self.address)
         self.beginConnecting()
 
     def addPacket(self, deliverableMessage):
@@ -162,7 +167,7 @@ class MMTPClientConnection(mixminion.TLSConnection.TLSConnection):
             serverControl = "RECEIVED\r\n"
             hashExtra = "SEND"
             serverHashExtra = "RECEIVED"
-            EventStats.log.attemptedRelay()
+            EventStats.elog.attemptedRelay()
 
         m = pkt.getContents()
         if m == 'RENEGOTIATE':
@@ -189,11 +194,11 @@ class MMTPClientConnection(mixminion.TLSConnection.TLSConnection):
         while self.nPacketsSent < self.nPacketsAcked + self.WRITEAHEAD:
             if not self.packets:
                 break
-            LOG.trace("Queueing new packet for %s",self.address)
+            log.trace("Queueing new packet for %s",self.address)
             self._startSendingNextPacket()
 
         if self.nPacketsAcked == self.nPacketsSent:
-            LOG.debug("Successfully relayed all packets to %s",self.address)
+            log.debug("Successfully relayed all packets to %s",self.address)
             self.allPacketsSent()
             self._isConnected = 0
             self._isAlive = 0
@@ -209,26 +214,26 @@ class MMTPClientConnection(mixminion.TLSConnection.TLSConnection):
         self.packets = []
         for p in pkts:
             if p.isJunk():
-                EventStats.log.failedRelay()
+                EventStats.elog.failedRelay()
             p.failed(1)
 
     ####
     # Implementation: hooks
     ####
     def onConnected(self):
-        LOG.debug("Completed MMTP client connection to %s",self.address)
+        log.debug("Completed MMTP client connection to %s",self.address)
         # Is the certificate correct?
         try:
             self.certCache.check(self.tls, self.targetKeyID, self.address)
         except MixProtocolBadAuth, e:
-            LOG.warn("Certificate error: %s. Shutting down connection.", e)
+            log.warn("Certificate error: %s. Shutting down connection.", e)
             self._failPendingPackets()
             self.startShutdown()
             return
         else:
-            LOG.debug("KeyID is valid from %s", self.address)
+            log.debug("KeyID is valid from %s", self.address)
 
-        EventStats.log.successfulConnect()
+        EventStats.elog.successfulConnect()
 
         # The certificate is fine; start protocol negotiation.
         self.beginWriting("MMTP %s\r\n" % ",".join(self.PROTOCOL_VERSIONS))
@@ -239,7 +244,7 @@ class MMTPClientConnection(mixminion.TLSConnection.TLSConnection):
             # Not done writing outgoing data.
             return
 
-        LOG.debug("Sent MMTP protocol string to %s", self.address)
+        log.debug("Sent MMTP protocol string to %s", self.address)
         self.stopWriting()
         self.beginReading()
         self.onRead = self.onProtocolRead
@@ -264,12 +269,12 @@ class MMTPClientConnection(mixminion.TLSConnection.TLSConnection):
                 self.protocol = p
                 break
         if not self.protocol:
-            LOG.warn("Protocol negotiation failed with %s", self.address)
+            log.warn("Protocol negotiation failed with %s", self.address)
             self._failPendingPackets()
             self.startShutdown()
             return
 
-        LOG.debug("MMTP protocol negotiated with %s: version %s",
+        log.debug("MMTP protocol negotiated with %s: version %s",
                   self.address, self.protocol)
 
         # Now that we're connected, optimize for throughput.
@@ -291,30 +296,30 @@ class MMTPClientConnection(mixminion.TLSConnection.TLSConnection):
 
         while self.inbuflen >= self.ACK_LEN:
             if not self.expectedAcks:
-                LOG.warn("Received acknowledgment from %s with no corresponding message", self.address)
+                log.warn("Received acknowledgment from %s with no corresponding message", self.address)
                 self._failPendingPackets()
                 self.startShutdown()
                 return
             ack = self.getInbuf(self.ACK_LEN, clear=1)
             good, bad = self.expectedAcks.pop(0)
             if ack == good:
-                LOG.debug("Packet delivered to %s",self.address)
+                log.debug("Packet delivered to %s",self.address)
                 self.nPacketsAcked += 1
                 if not self.pendingPackets[0].isJunk():
-                    EventStats.log.successfulRelay()
+                    EventStats.elog.successfulRelay()
                 self.pendingPackets[0].succeeded()
                 del self.pendingPackets[0]
             elif ack == bad:
-                LOG.warn("Packet rejected by %s", self.address)
+                log.warn("Packet rejected by %s", self.address)
                 self.nPacketsAcked += 1
                 if not self.pendingPackets[0].isJunk():
-                    EventStats.log.failedRelay()
+                    EventStats.elog.failedRelay()
                 self.pendingPackets[0].failed(1)
                 del self.pendingPackets[0]
             else:
                 # The control string and digest are wrong for an accepted
                 # or rejected packet!
-                LOG.warn("Bad acknowledgement received from %s",self.address)
+                log.warn("Bad acknowledgement received from %s",self.address)
                 self._failPendingPackets()
                 self.startShutdown()
                 return
@@ -327,7 +332,7 @@ class MMTPClientConnection(mixminion.TLSConnection.TLSConnection):
     def onTLSError(self):
         # If we got an error, fail all our packets and don't accept any more.
         if not self._isConnected:
-            EventStats.log.failedConnect()
+            EventStats.elog.failedConnect()
         self._isConnected = 0
         self._failPendingPackets()
     def onTimeout(self):
@@ -335,7 +340,7 @@ class MMTPClientConnection(mixminion.TLSConnection.TLSConnection):
     def onClosed(self): pass
     def doneWriting(self): pass
     def receivedShutdown(self):
-        LOG.warn("Received unexpected shutdown from %s", self.address)
+        log.warn("Received unexpected shutdown from %s", self.address)
         self._failPendingPackets()
     def shutdownFinished(self): pass
 
@@ -400,7 +405,7 @@ def sendPackets(routing, packetList, timeout=300, callback=None):
         family, addr = socket.AF_INET, routing.ip
     else:
         assert isinstance(routing, MMTPHostInfo)
-        LOG.trace("Looking up %s...",routing.hostname)
+        log.trace("Looking up %s...",routing.hostname)
         family, addr, _ = mixminion.NetUtils.getIP(routing.hostname)
         if family == "NOENT":
             raise MixProtocolError("Couldn't resolve hostname %s: %s" % (
@@ -527,7 +532,7 @@ class PeerCertificateCache:
             if targetKeyID == self.cache[hashed_peer_pk]:
                 # We recognize the key, and have already seen it to be
                 # signed by the target identity.
-                LOG.trace("Got a cached certificate from %s", serverName)
+                log.trace("Got a cached certificate from %s", serverName)
                 return # All is well.
             else:
                 # We recognize the key, but some other identity signed it.
@@ -546,7 +551,7 @@ class PeerCertificateCache:
 
         # Okay, remember who has signed this certificate.
         hashed_identity = sha1(identity.encode_key(public=1))
-        LOG.trace("Remembering valid certificate for %s", serverName)
+        log.trace("Remembering valid certificate for %s", serverName)
         self.cache[hashed_peer_pk] = hashed_identity
 
         # Note: we don't need to worry about two identities signing the

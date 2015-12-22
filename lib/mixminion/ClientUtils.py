@@ -14,6 +14,7 @@ __all__ = [ 'NoPassword', 'PasswordManager', 'getPassword_term',
 import binascii
 import cPickle
 import getpass
+import logging
 import os
 import sys
 import time
@@ -23,11 +24,15 @@ import struct
 import mixminion.Filestore
 import mixminion.Packet
 
-from mixminion.Common import LOG, MixError, UIError, ceilDiv, \
+from mixminion.Common import MixError, UIError, ceilDiv, \
      createPrivateDir, floorDiv, previousMidnight, readFile, \
      succeedingMidnight, writeFile, armorText, unarmorText, MixFatalError
 from mixminion.Crypto import sha1, ctr_crypt, DIGEST_LEN, AES_KEY_LEN, \
      getCommonPRNG, trng
+
+
+log = logging.getLogger(__name__)
+
 
 #----------------------------------------------------------------------
 class BadPassword(MixError):
@@ -609,11 +614,11 @@ class SURBLog(mixminion.Filestore.DBBase):
 
         if verbose:
             if nUsed:
-                LOG.warn("Skipping %s used reply blocks", nUsed)
+                log.warn("Skipping %s used reply blocks", nUsed)
             if nExpired:
-                LOG.warn("Skipping %s expired reply blocks", nExpired)
+                log.warn("Skipping %s expired reply blocks", nExpired)
             if nShortlived:
-                LOG.warn("Skipping %s soon-to-expire reply blocks",nShortlived)
+                log.warn("Skipping %s soon-to-expire reply blocks",nShortlived)
 
         return result
 
@@ -784,9 +789,9 @@ class ClientQueue:
                 if foundMatch.get(d):
                     continue
                 elif foundAny.get(d):
-                    LOG.warn("No expired packets found for %r", d)
+                    log.warn("No expired packets found for %r", d)
                 else:
-                    LOG.warn("No pending packets found for %r", d)
+                    log.warn("No pending packets found for %r", d)
         return result
 
     def getRouting(self, handle):
@@ -810,7 +815,7 @@ class ClientQueue:
         except (ValueError, TypeError):
             magic = None
         if magic != "PACKET-0":
-            LOG.error("Unrecognized packet format for %s",handle)
+            log.error("Unrecognized packet format for %s",handle)
             return None
         return packet, routing, when
 

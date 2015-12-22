@@ -847,7 +847,7 @@ class _ConfigFile:
                     raise ConfigError("Skipping unrecognized section %s"
                                       % secName)
                 else:
-                    LOG.warn("Skipping unrecognized section %s", secName)
+                    log.warn("Skipping unrecognized section %s", secName)
                     continue
 
             # Set entries from the section, searching for bad entries
@@ -867,7 +867,7 @@ class _ConfigFile:
                     if self._restrictKeys:
                         raise ConfigError(msg)
                     else:
-                        LOG.warn(msg)
+                        log.warn(msg)
                         continue
 
                 parseFn, _ = self.CODING_FNS.get(parseType, (None, None))
@@ -1085,13 +1085,13 @@ class ClientConfig(_ConfigFile):
 
         t = self['Network'].get('ConnectionTimeout')
         if t is not None:
-            LOG.warn("The ConnectionTimout option in your .mixminionrc is "
+            log.warn("The ConnectionTimout option in your .mixminionrc is "
                      "deprecated; use Timeout instead.")
         t = self.getTimeout()
         if int(t) < 5:
-            LOG.warn("Very short network timeout")
+            log.warn("Very short network timeout")
         elif int(t) > 120:
-            LOG.warn("Very long network timeout")
+            log.warn("Very long network timeout")
 
         # XXXX008 safe to remove; has warned since 007rc2
         security = self.get('Security', {})
@@ -1099,7 +1099,7 @@ class ClientConfig(_ConfigFile):
                                       ('SURBPathLength', 'SURBPath')]:
             if security.get(deprecatedKey, None) is not None:
                 v = security[deprecatedKey]
-                LOG.warn("The %s option in your .mixminionrc is no longer "
+                log.warn("The %s option in your .mixminionrc is no longer "
                          "supported; use '%s: *%s' instead",
                          deprecatedKey, altKey, v)
 

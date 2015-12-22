@@ -3,10 +3,11 @@
 """mixminion.server.PacketHandler: Code to process mixminion packets"""
 
 import binascii
+import logging
 import threading
 import types
 
-from mixminion.Common import encodeBase64, formatBase64, LOG
+from mixminion.Common import encodeBase64, formatBase64
 import mixminion.Crypto as Crypto
 import mixminion.Packet as Packet
 import mixminion.BuildMessage
@@ -15,6 +16,10 @@ from mixminion.ServerInfo import PACKET_KEY_BYTES
 from mixminion.Common import MixError, MixFatalError, isPrintingAscii
 
 __all__ = [ 'PacketHandler', 'ContentError', 'DeliveryPacket', 'RelayedPacket']
+
+
+log = logging.getLogger(__name__)
+
 
 class ContentError(MixError):
     """Exception raised when a packed is malformatted or unacceptable."""
@@ -439,7 +444,7 @@ class DeliveryPacket:
         if self.type is None:
             self.decode()
         if self.headers is None:
-            LOG.warn("getHeaders found no decoded headers")
+            log.warn("getHeaders found no decoded headers")
             return {}
         return self.headers
 
